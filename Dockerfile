@@ -1,5 +1,5 @@
 # Use the same Ubuntu version as the GitHub Actions runner
-FROM ubuntu:24.04
+FROM ubuntu:24.04 as base
 
 # Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -49,10 +49,13 @@ RUN apt-get update && apt-get install -y \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Set the working directory
+# --- End of base stage for CI ---
+
+# Set the working directory for local builds
 WORKDIR /work
 
 # Copy the source code
+FROM base as final
 COPY . .
 
 # Initialize and update submodules
