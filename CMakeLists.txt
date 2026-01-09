@@ -7,6 +7,8 @@ endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Disable RTTI to match MapLibre Native settings (avoids typeinfo linker errors)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 
 # Add testing support (default OFF)
 option(BUILD_TESTS "Build tests" OFF)
@@ -122,6 +124,7 @@ endif()
 add_executable(maplibre-slint-example
     examples/main.cpp
     src/slint_maplibre_headless.cpp
+    src/slint_maplibre_gl.cpp
     platform/custom_file_source.cpp
 )
 
@@ -163,10 +166,16 @@ if(APPLE)
     set(CMAKE_OSX_ARCHITECTURES "arm64")
     set(CMAKE_OSX_DEPLOYMENT_TARGET "14.3")
 
-    # Find Metal framework for MapLibre
+    # Find macOS frameworks
     find_library(METAL_FRAMEWORK Metal)
+    find_library(IOSURFACE_FRAMEWORK IOSurface)
+    find_library(COREFOUNDATION_FRAMEWORK CoreFoundation)
 
-    # On macOS, use OpenGL instead of GLES
+    # On macOS, use OpenGL instead of GLES (and prefer OpenGL over Metal for this zero-copy demo)
+    option(MLN_WITH_CLANG_TIDY "Enable clang-tidy" OFF)
+    option(MLN_WITH_METAL "Enable Metal backend" OFF)
+    option(MLN_WITH_OPENGL "Enable OpenGL backend" ON)
+    option(MLN_WITH_VULKAN "Enable Vulkan backend" OFF)
     set(GLES3_FOUND TRUE)
     set(GLES3_INCLUDE_DIRS "")
     set(GLES3_LIBRARIES "")
@@ -186,8 +195,14 @@ target_include_directories(maplibre-slint-example
     PRIVATE
         src
         platform
-        ${CMAKE_SOURCE_DIR}/vendor/maplibre-native/include
-        ${CMAKE_BINARY_DIR}/vendor/maplibre-native/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/platform
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/maplibre-native/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/maplibre-native/vendor/unique_resource
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/maplibre-native/vendor/unordered_dense/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/maplibre-native/vendor/maplibre-native-base/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/maplibre-native/vendor/maplibre-native-base/extras/rapidjson/include
+    ${CMAKE_CURRENT_BINARY_DIR}/vendor/maplibre-native/include
         ${CMAKE_CURRENT_BINARY_DIR}
         ${GLES3_INCLUDE_DIRS}
 )
@@ -201,6 +216,8 @@ target_link_libraries(maplibre-slint-example
         ${GLES3_LIBRARIES}
         ${OPENGL_LIBRARIES}
         $<$<PLATFORM_ID:Darwin>:${METAL_FRAMEWORK}>
+        $<$<PLATFORM_ID:Darwin>:${IOSURFACE_FRAMEWORK}>
+        $<$<PLATFORM_ID:Darwin>:${COREFOUNDATION_FRAMEWORK}>
 )
 
 # On Windows, copy the Slint DLL next to the application binary so that it's found
