@@ -61,5 +61,10 @@
   "files.associations": {
     "__tree": "cpp",
     "map": "cpp"
+  },
+  "chat.tools.terminal.autoApprove": {
+    "nproc": true,
+    "./build/maplibre-slint-example": true,
+    "tee": true
   }
 }

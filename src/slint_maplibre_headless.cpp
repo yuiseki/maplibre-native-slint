@@ -4,6 +4,10 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <chrono>
+#include <vector>
+#include <cstdint>
+#include <numeric>
 
 #include "mbgl/gfx/backend_scope.hpp"
 #include "mbgl/map/bound_options.hpp"
@@ -184,6 +188,38 @@ void SlintMapLibre::setStyleUrl(const std::string& url) {
 }
 
 slint::Image SlintMapLibre::render_map() {
+    // Detailed performance instrumentation (warm-up 1s, collect 5s):
+    // per-second vectors for render, readback, unpremultiply, memcpy
+    static bool _perf_active = false;
+    static std::chrono::steady_clock::time_point _perf_start;
+    static std::array<std::vector<uint64_t>, 5> _v_render;
+    static std::array<std::vector<uint64_t>, 5> _v_readback;
+    static std::array<std::vector<uint64_t>, 5> _v_unprem;
+    static std::array<std::vector<uint64_t>, 5> _v_memcpy;
+    static int _last_printed_second = -1; // -1 = none printed
+    static bool _perf_collection_done = false;
+
+    auto compute_stats_us = [](const std::vector<uint64_t>& v) {
+        struct S { double avg; double med; double p95; } s{0, 0, 0};
+        if (v.empty()) return s;
+        std::vector<uint64_t> tmp = v;
+        std::sort(tmp.begin(), tmp.end());
+        double sum = std::accumulate(tmp.begin(), tmp.end(), 0.0);
+        s.avg = (sum / tmp.size()) / 1e3; // ns -> us
+        // median
+        size_t n = tmp.size();
+        if (n % 2 == 1) {
+            s.med = tmp[n / 2] / 1e3;
+        } else {
+            s.med = ((tmp[n / 2 - 1] + tmp[n / 2]) / 2.0) / 1e3;
+        }
+        // p95
+        size_t idx95 = static_cast<size_t>(std::ceil(0.95 * n)) - 1;
+        idx95 = std::min(idx95, n - 1);
+        s.p95 = tmp[idx95] / 1e3;
+        return s;
+    };
+
     std::cout << "render_map() called" << std::endl;
 
     if (!map || !frontend) {
@@ -199,15 +235,42 @@ slint::Image SlintMapLibre::render_map() {
 
     std::cout << "Style loaded, proceeding with rendering..." << std::endl;
 
+    // Start perf timer when style is first observed as loaded
+    if (!_perf_active) {
+        _perf_active = true;
+        // start collection immediately after marking loaded: treat warm-up as elapsed
+        _perf_start = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+        _last_printed_second = -1;
+        _perf_collection_done = false;
+        for (int i = 0; i < 5; ++i) {
+            _v_render[i].clear();
+            _v_readback[i].clear();
+            _v_unprem[i].clear();
+            _v_memcpy[i].clear();
+        }
+        std::cout << "Perf collection: started (warm-up 1s, collect 5s)" << std::endl;
+    }
+
     // Use the exact same rendering method as mbgl-render
     std::cout << "Using frontend.render(map) like mbgl-render..." << std::endl;
     // Ensure a valid backend scope is active for rendering (required on some
     // platforms/drivers, notably Windows) to make the GL context current.
     if (auto* backend = frontend->getBackend()) {
         mbgl::gfx::BackendScope scope{*backend};
+        auto t0 = std::chrono::steady_clock::now();
         frontend->renderOnce(*map);
+        auto t1 = std::chrono::steady_clock::now();
         std::cout << "Rendered one frame, reading still image..." << std::endl;
+        auto t_rb_start = std::chrono::steady_clock::now();
         mbgl::PremultipliedImage rendered_image = frontend->readStillImage();
+        auto t_rb_end = std::chrono::steady_clock::now();
+        uint64_t dur_render =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0)
+                .count();
+        uint64_t dur_readback =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t_rb_end -
+                                                                  t_rb_start)
+                .count();
         std::cout << "Image size: " << rendered_image.size.width << "x"
                   << rendered_image.size.height << std::endl;
         std::cout << "Image data pointer: "
@@ -222,17 +285,29 @@ slint::Image SlintMapLibre::render_map() {
 
         std::cout << "Converting from premultiplied to unpremultiplied..."
                   << std::endl;
+        auto t_up_start = std::chrono::steady_clock::now();
         mbgl::UnassociatedImage unpremult_image =
             mbgl::util::unpremultiply(std::move(rendered_image));
+        auto t_up_end = std::chrono::steady_clock::now();
+        uint64_t dur_unprem =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t_up_end -
+                                                                  t_up_start)
+                .count();
 
         std::cout << "Creating Slint pixel buffer..." << std::endl;
         auto pixel_buffer = slint::SharedPixelBuffer<slint::Rgba8Pixel>(
             unpremult_image.size.width, unpremult_image.size.height);
 
         std::cout << "Copying unpremultiplied pixel data..." << std::endl;
+        auto t_mem_start = std::chrono::steady_clock::now();
         memcpy(pixel_buffer.begin(), unpremult_image.data.get(),
                unpremult_image.size.width * unpremult_image.size.height *
                    sizeof(slint::Rgba8Pixel));
+        auto t_mem_end = std::chrono::steady_clock::now();
+        uint64_t dur_memcpy =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t_mem_end -
+                                                                  t_mem_start)
+                .count();
 
         const uint8_t* raw_data = unpremult_image.data.get();
         std::cout << "Pixel samples (RGBA): ";
@@ -259,6 +334,63 @@ slint::Image SlintMapLibre::render_map() {
                   << " / "
                   << (unpremult_image.size.width * unpremult_image.size.height)
                   << std::endl;
+
+        // Per-frame durations (ns) already computed above.
+        // Collect only during the 5-second collection window after 1s warm-up
+        if (!_perf_collection_done) {
+            auto now2 = std::chrono::steady_clock::now();
+            auto since_start = now2 - _perf_start;
+            if (since_start < std::chrono::seconds(1)) {
+                // warm-up: do not collect
+            } else {
+                auto collect_elapsed = since_start - std::chrono::seconds(1);
+                int idx = static_cast<int>(
+                    std::chrono::duration_cast<std::chrono::seconds>(collect_elapsed)
+                        .count());
+                if (idx >= 0 && idx < 5) {
+                    _v_render[idx].push_back(dur_render);
+                    _v_readback[idx].push_back(dur_readback);
+                    _v_unprem[idx].push_back(dur_unprem);
+                    _v_memcpy[idx].push_back(dur_memcpy);
+                }
+                // Print completed second buckets when their second has elapsed
+                int seconds_completed = static_cast<int>(
+                    std::chrono::duration_cast<std::chrono::seconds>(collect_elapsed)
+                        .count());
+                if (seconds_completed > _last_printed_second) {
+                    int upto = std::min(seconds_completed, 4);
+                    for (int s = _last_printed_second + 1; s <= upto; ++s) {
+                        auto r = compute_stats_us(_v_render[s]);
+                        auto rb = compute_stats_us(_v_readback[s]);
+                        auto up = compute_stats_us(_v_unprem[s]);
+                        auto mm = compute_stats_us(_v_memcpy[s]);
+                        std::cout << "BREAKDOWN_SEC " << (s + 1)
+                                  << " (us) render(avg/med/p95)=" << r.avg << "/" << r.med << "/" << r.p95
+                                  << ", readback=" << rb.avg << "/" << rb.med << "/" << rb.p95
+                                  << ", unprem=" << up.avg << "/" << up.med << "/" << up.p95
+                                  << ", memcpy=" << mm.avg << "/" << mm.med << "/" << mm.p95
+                                  << std::endl;
+                    }
+                    _last_printed_second = upto;
+                }
+                // if we've exceeded collection window, print remaining and mark done
+                if (collect_elapsed >= std::chrono::seconds(5)) {
+                    for (int s = _last_printed_second + 1; s < 5; ++s) {
+                        auto r = compute_stats_us(_v_render[s]);
+                        auto rb = compute_stats_us(_v_readback[s]);
+                        auto up = compute_stats_us(_v_unprem[s]);
+                        auto mm = compute_stats_us(_v_memcpy[s]);
+                        std::cout << "BREAKDOWN_SEC " << (s + 1)
+                                  << " (us) render(avg/med/p95)=" << r.avg << "/" << r.med << "/" << r.p95
+                                  << ", readback=" << rb.avg << "/" << rb.med << "/" << rb.p95
+                                  << ", unprem=" << up.avg << "/" << up.med << "/" << up.p95
+                                  << ", memcpy=" << mm.avg << "/" << mm.med << "/" << mm.p95
+                                  << std::endl;
+                    }
+                    _perf_collection_done = true;
+                }
+            }
+        }
 
         std::cout << "Image created successfully" << std::endl;
         return slint::Image(pixel_buffer);
