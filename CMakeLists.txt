@@ -8,6 +8,15 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Prefer WebGPU/wgpu-native unless the caller explicitly overrides the backend.
+if(NOT DEFINED MLN_WITH_WEBGPU)
+  set(MLN_WITH_WEBGPU ON CACHE BOOL "Build with WebGPU renderer by default" FORCE)
+endif()
+
+if(MLN_WITH_WEBGPU AND NOT DEFINED MLN_WEBGPU_IMPL_WGPU)
+  set(MLN_WEBGPU_IMPL_WGPU ON CACHE BOOL "Use wgpu-native as the WebGPU implementation" FORCE)
+endif()
+
 # --- Platform-specific compiler warnings handling ---
 # On Linux with modern GCC (13+), Boost Geometry triggers variable shadowing warnings.
 # These warnings don't affect functionality but can break builds with -Werror.

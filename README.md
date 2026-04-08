@@ -27,7 +27,9 @@ For detailed build instructions, see the platform-specific guides:
 - Rust toolchain (required by Slint and wgpu-native)
 - Network connectivity for downloading dependencies
 
-For the WebGPU (wgpu-native) backend, LLVM is also required on Windows (for `bindgen`).
+For the WebGPU (wgpu-native) backend, LLVM/libclang is required for `bindgen`.
+- Linux: install `llvm-dev libclang-dev` and set `LIBCLANG_PATH` if auto-detection fails
+- Windows: install LLVM and ensure `libclang.dll` is discoverable
 
 ## Basic Build Process
 
@@ -37,7 +39,7 @@ git clone https://github.com/maplibre/maplibre-native-slint.git
 cd maplibre-native-slint
 git submodule update --init --recursive
 
-# Build (Slint will be automatically downloaded if needed)
+# Build (WebGPU/wgpu is the default backend; Slint will be automatically downloaded if needed)
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
@@ -57,7 +59,7 @@ See the platform-specific guides for full instructions including vcpkg setup on 
 
 ## Features
 
-- **WebGPU rendering**: wgpu-native backend supported on macOS (Apple Silicon) and Windows x64
+- **WebGPU rendering**: wgpu-native backend is the default build path
 - **Slint UI Integration**: Displays maps within Slint user interfaces
 - **Custom File Source**: HTTP-based tile and resource loading
 - **Touch/Mouse Interaction**: Interactive map navigation (partial, in progress)
@@ -69,7 +71,7 @@ See the platform-specific guides for full instructions including vcpkg setup on 
 
 | Platform        | OpenGL/GLES | Metal | WebGPU (wgpu) | CI Status |
 |----------------|-------------|-------|----------------|-----------|
-| Linux x86_64   | ✅          | ❌    | 🟨*            | ✅        |
+| Linux x86_64   | ✅          | ❌    | ✅             | ✅        |
 | Linux ARM64    | 🟨*         | ❌    | 🟨*            | ❌        |
 | Windows x86_64 | ✅          | ❌    | ✅             | ✅        |
 | Windows ARM64  | 🟨*         | ❌    | 🟨*            | ❌        |
@@ -83,20 +85,23 @@ See the platform-specific guides for full instructions including vcpkg setup on 
 
 **Notes:**
 - \* Architecture should work but has not been extensively tested
-- CI runs on Ubuntu x86_64 (OpenGL/Xvfb) and Windows x64 (WebGPU/wgpu)
+- CI runs on Ubuntu x86_64 (WebGPU/wgpu) and Windows x64 (WebGPU/wgpu)
 - macOS builds target ARM64 only
 
 ### Build Configuration Options
 
 ```bash
-# Linux/Windows with OpenGL (default)
+# Default build (Linux/Windows/macOS)
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-# macOS with Metal backend
+# macOS with Metal backend (fallback / comparison path)
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DMLN_WITH_METAL=ON -DMLN_WITH_OPENGL=OFF -G Xcode
 
-# Windows or macOS with WebGPU (wgpu-native) backend
+# Explicit WebGPU (wgpu-native) backend selection
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DMLN_WITH_WEBGPU=ON -DMLN_WEBGPU_IMPL_WGPU=ON
+
+# Explicit OpenGL/GLES fallback
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DMLN_WITH_WEBGPU=OFF -DMLN_WITH_OPENGL=ON
 ```
 
 ## Rendering Pipeline
@@ -123,6 +128,7 @@ The current rendering pipeline involves GPU-to-CPU data transfer:
 
 - Ensure all dependencies are installed per the platform guide
 - Run `git submodule update --init --recursive` if vendor directories are empty
+- On Linux, install `llvm-dev libclang-dev`; if configure still cannot find libclang, set `LIBCLANG_PATH=$(llvm-config --libdir)`
 - On Windows with the WebGPU backend, install LLVM and ensure `libclang.dll` is accessible
 
 ### Runtime Issues
