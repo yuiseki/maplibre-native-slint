@@ -50,6 +50,7 @@ jobs:
           libwebp-dev \
           libzstd-dev \
           libunistring-dev \
+          libfontconfig1-dev \
           meson \
           zlib1g-dev \
           gcc \
