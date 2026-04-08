@@ -39,8 +39,8 @@ void SlintMapLibre::initialize(int w, int h) {
               << std::endl;
 
     // Initialize RunLoop.
-    // On macOS with Metal/OpenGL, winit manages the CFRunLoop so we skip creation.
-    // With WebGPU (libuv), we always need our own RunLoop.
+    // On macOS with Metal/OpenGL, winit manages the CFRunLoop so we skip
+    // creation. With WebGPU (libuv), we always need our own RunLoop.
 #if defined(__APPLE__) && !defined(MLN_WITH_WEBGPU)
     // macOS Metal/OpenGL: rely on winit's CFRunLoop
 #else
