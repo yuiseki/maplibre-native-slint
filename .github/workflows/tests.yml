@@ -96,6 +96,7 @@ jobs:
         cmake .. \
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
           -DBUILD_TESTS=ON \
+          -DMLN_WITH_OPENGL=ON \
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     
     - name: Build

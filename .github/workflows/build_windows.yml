@@ -43,6 +43,7 @@ jobs:
       run: |
         cmake -S . -B build-ninja -G Ninja `
           -DCMAKE_BUILD_TYPE=Release `
+          -DMLN_WITH_OPENGL=ON `
           -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
           -DVCPKG_TARGET_TRIPLET=x64-windows
 
