@@ -72,4 +72,17 @@ if (WIN32)
     add_custom_command(TARGET maplibre-slint-example POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:maplibre-slint-example> $<TARGET_FILE_DIR:maplibre-slint-example>
         COMMAND_EXPAND_LISTS)
+
+    # Copy wgpu_native.dll when using the WebGPU backend
+    if(MLN_WITH_WEBGPU AND DEFINED WGPU_LIBRARY)
+        string(REPLACE ".lib" ".dll" _wgpu_dll "${WGPU_LIBRARY}")
+        if(EXISTS "${_wgpu_dll}")
+            add_custom_command(TARGET maplibre-slint-example POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_wgpu_dll}"
+                    "$<TARGET_FILE_DIR:maplibre-slint-example>"
+                COMMENT "Copying wgpu_native.dll to output directory"
+            )
+        endif()
+    endif()
 endif()
