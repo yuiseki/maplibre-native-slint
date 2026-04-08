@@ -27,6 +27,8 @@ jobs:
           curl \
           pkg-config \
           git \
+          llvm-dev \
+          libclang-dev \
           libgl1-mesa-dev \
           libgles2-mesa-dev \
           libegl1-mesa-dev \
@@ -92,12 +94,12 @@ jobs:
     
     - name: Configure CMake
       run: |
+        export LIBCLANG_PATH="$(llvm-config --libdir)"
         mkdir -p build
         cd build
         cmake .. \
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
           -DBUILD_TESTS=ON \
-          -DMLN_WITH_OPENGL=ON \
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     
     - name: Build

@@ -2,6 +2,8 @@
 
 This guide provides step-by-step instructions for building the MapLibre Native + Slint integration project on Ubuntu 24.04 LTS.
 
+The default build on Linux now uses the WebGPU renderer with the `wgpu-native` implementation.
+
 ## System Requirements
 
 - Ubuntu 24.04 LTS (Noble Numbat)
@@ -16,6 +18,7 @@ Update your package list and install the required system packages:
 ```bash
 sudo apt update
 sudo apt install -y build-essential cmake git pkg-config ninja-build
+sudo apt install -y llvm-dev libclang-dev clang
 sudo apt install -y libgl1-mesa-dev libgles2-mesa-dev mesa-common-dev
 sudo apt install -y libunistring-dev
 sudo apt install -y libicu-dev
@@ -25,7 +28,7 @@ sudo apt install -y curl
 sudo apt install -y libuv1-dev libglfw3-dev libwebp-dev
 ```
 
-**Note**: The additional packages (`ninja-build`, `mesa-common-dev`, `libuv1-dev`, `libglfw3-dev`, `libwebp-dev`) are required for optimal build performance and to ensure all MapLibre dependencies are available.
+**Note**: `llvm-dev` and `libclang-dev` are required for `wgpu-native`'s `bindgen` step. The additional packages (`ninja-build`, `mesa-common-dev`, `libuv1-dev`, `libglfw3-dev`, `libwebp-dev`) are kept to ensure all MapLibre dependencies are available on Ubuntu 24.04.
 
 ## Step 2: Install Rust
 
@@ -95,17 +98,21 @@ Set up the build environment and configure CMake:
 # Set PKG_CONFIG_PATH to ensure pkg-config can find libuv and glfw3
 export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH"
 
+# Help wgpu-native/bindgen find libclang
+export LIBCLANG_PATH="${LIBCLANG_PATH:-$(llvm-config --libdir)}"
+
 # Configure with CMake using Ninja (recommended for better build performance)
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wno-error=shadow" -G Ninja .
+cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja .
 ```
 
 **Alternative**: If Ninja is not available or you prefer Make:
 
 ```bash
 export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH"
+export LIBCLANG_PATH="${LIBCLANG_PATH:-$(llvm-config --libdir)}"
 
 # Using GNU Make instead of Ninja
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wno-error=shadow" .
+cmake -B build -DCMAKE_BUILD_TYPE=Release .
 ```
 
 ### Build the Project
@@ -117,7 +124,7 @@ cmake --build build --parallel $(nproc)
 
 **Important Notes**:
 - The `PKG_CONFIG_PATH` export is necessary on Ubuntu 24.04 to ensure CMake can locate `libuv` and `glfw3` packages
-- The `-Wno-error=shadow` flag prevents compilation errors from Boost Geometry library's variable shadowing warnings
+- `LIBCLANG_PATH` allows `wgpu-native`'s bindgen step to find `libclang.so`
 - If you chose Option A for Slint, you'll see a message about "Downloading it from Git and building it locally" during configuration. This is normal and expected.
 
 ## Step 6: Verify the Build
@@ -180,12 +187,14 @@ sudo ldconfig
 pkg-config --list-all | grep slint
 ```
 
-**Compilation errors with "variable shadowing" warnings:**
+**`bindgen` / libclang errors while building `wgpu-native`:**
 ```bash
-# Use the -Wno-error=shadow flag when configuring CMake
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wno-error=shadow" .
+# Make sure LLVM/libclang are installed and exported
+sudo apt install -y llvm-dev libclang-dev
+export LIBCLANG_PATH="$(llvm-config --libdir)"
+cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja .
 ```
-This is caused by Boost Geometry library using variable shadowing patterns that trigger warnings on modern GCC versions (GCC 13+).
+If `llvm-config` is unavailable, set `LIBCLANG_PATH` to the directory containing `libclang.so`.
 
 **Missing OpenGL headers:**
 ```bash
@@ -209,7 +218,8 @@ cmake --build build -j2
 # Clean up and reconfigure
 rm -rf build
 export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH"
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wno-error=shadow" .
+export LIBCLANG_PATH="${LIBCLANG_PATH:-$(llvm-config --libdir)}"
+cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja .
 ```
 
 ### Runtime Issues
@@ -237,7 +247,7 @@ After successful build:
 
 ## Ubuntu Version Notes
 
-This guide is specifically tested on Ubuntu 24.04 LTS. For other Ubuntu versions:
+This guide is specifically tested on Ubuntu 24.04 LTS with the default WebGPU (`wgpu-native`) backend. For other Ubuntu versions:
 - Ubuntu 22.04: Should work with the same instructions
 - Ubuntu 20.04: May need newer CMake version (`snap install cmake`)
 - Older versions: Not recommended due to outdated dependencies
