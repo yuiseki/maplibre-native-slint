@@ -40,23 +40,49 @@ target_include_directories(maplibre-slint-example
         ${CMAKE_SOURCE_DIR}/vendor/maplibre-native/include
         ${CMAKE_BINARY_DIR}/vendor/maplibre-native/include
         ${CMAKE_CURRENT_BINARY_DIR}
-        ${GLES3_INCLUDE_DIRS}
+        $<$<NOT:$<BOOL:${MLN_WITH_WEBGPU}>>:${GLES3_INCLUDE_DIRS}>
 )
 
-# Link libraries. Linking Slint::Slint will also propagate include dirs and other usage requirements.
+# Link libraries
 target_link_libraries(maplibre-slint-example
     PRIVATE
         Slint::Slint
         mbgl-core
         cpr::cpr
-        ${GLES3_LIBRARIES}
-        ${OPENGL_LIBRARIES}
-        $<$<PLATFORM_ID:Darwin>:${METAL_FRAMEWORK}>
 )
+
+if(MLN_WITH_WEBGPU)
+  target_compile_definitions(maplibre-slint-example PRIVATE MLN_WITH_WEBGPU)
+  # WebGPU backend: link wgpu-native via the mbgl-vendor-wgpu target from maplibre-native
+  if(TARGET mbgl-vendor-wgpu)
+    target_link_libraries(maplibre-slint-example PRIVATE mbgl-vendor-wgpu)
+  endif()
+else()
+  # Traditional OpenGL/Metal backend
+  target_link_libraries(maplibre-slint-example
+      PRIVATE
+          ${GLES3_LIBRARIES}
+          ${OPENGL_LIBRARIES}
+          $<$<PLATFORM_ID:Darwin>:${METAL_FRAMEWORK}>
+  )
+endif()
 
 # On Windows, copy the Slint DLL next to the application binary so that it's found
 if (WIN32)
     add_custom_command(TARGET maplibre-slint-example POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:maplibre-slint-example> $<TARGET_FILE_DIR:maplibre-slint-example>
         COMMAND_EXPAND_LISTS)
+
+    # Copy wgpu_native.dll when using the WebGPU backend
+    if(MLN_WITH_WEBGPU AND DEFINED WGPU_LIBRARY)
+        string(REPLACE ".lib" ".dll" _wgpu_dll "${WGPU_LIBRARY}")
+        if(EXISTS "${_wgpu_dll}")
+            add_custom_command(TARGET maplibre-slint-example POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_wgpu_dll}"
+                    "$<TARGET_FILE_DIR:maplibre-slint-example>"
+                COMMENT "Copying wgpu_native.dll to output directory"
+            )
+        endif()
+    endif()
 endif()

@@ -102,6 +102,43 @@ set(MBGL_WITH_TESTS OFF CACHE BOOL "" FORCE)
 set(MBGL_WITH_RENDER_TESTS OFF CACHE BOOL "" FORCE)
 set(MBGL_WITH_BENCHMARKS OFF CACHE BOOL "" FORCE)
 
+# WebGPU backend: when enabled, use wgpu-native instead of Metal/OpenGL
+if(MLN_WITH_WEBGPU)
+  # libuv is required for the WebGPU backend on macOS
+  if(APPLE)
+    set(MLN_DARWIN_USE_LIBUV ON CACHE BOOL "Use libuv on macOS for WebGPU" FORCE)
+  endif()
+  # Ensure LIBCLANG_PATH is set for wgpu-native's bindgen build step on Windows.
+  # bindgen requires libclang.dll, which ships with LLVM. We search common install
+  # locations and fall back to the LLVM CMake package if available.
+  if(WIN32 AND NOT DEFINED ENV{LIBCLANG_PATH})
+    find_package(LLVM QUIET CONFIG)
+    if(LLVM_FOUND AND DEFINED LLVM_LIBRARY_DIRS)
+      set(ENV{LIBCLANG_PATH} "${LLVM_LIBRARY_DIRS}")
+      message(STATUS "wgpu/bindgen: LIBCLANG_PATH set via LLVM package: $ENV{LIBCLANG_PATH}")
+    else()
+      foreach(_llvm_candidate
+          "C:/Program Files/LLVM/lib"
+          "C:/Program Files/LLVM/bin"
+          "$ENV{ProgramFiles}/LLVM/lib"
+          "$ENV{ProgramFiles}/LLVM/bin"
+      )
+        if(EXISTS "${_llvm_candidate}/libclang.dll")
+          set(ENV{LIBCLANG_PATH} "${_llvm_candidate}")
+          message(STATUS "wgpu/bindgen: LIBCLANG_PATH set to ${_llvm_candidate}")
+          break()
+        endif()
+      endforeach()
+    endif()
+    if(NOT DEFINED ENV{LIBCLANG_PATH})
+      message(WARNING
+        "LIBCLANG_PATH is not set and libclang.dll could not be found automatically.\n"
+        "wgpu-native's bindgen step may fail. Install LLVM from https://releases.llvm.org/\n"
+        "and set LIBCLANG_PATH to the directory containing libclang.dll before running CMake.")
+    endif()
+  endif()
+endif()
+
 # Add MapLibre (will use vendored dependencies inside vendor/maplibre-native)
 add_subdirectory(vendor/maplibre-native EXCLUDE_FROM_ALL)
 
@@ -158,56 +195,51 @@ if (NOT TARGET cpr::cpr)
   endif()
 endif()
 
-# Find system deps
-find_package(OpenGL REQUIRED)
+# Find system deps (skip OpenGL/Metal when using WebGPU)
 find_package(PkgConfig REQUIRED)
 
-# --- Linux: Handle pkg-config search for dependencies ---
-# On Linux, explicitly search for critical dependencies to provide better error messages
-# if they are not found. This helps users understand what needs to be installed.
-if(UNIX AND NOT APPLE)
-  pkg_check_modules(LIBUV libuv QUIET)
-  if(NOT LIBUV_FOUND)
-    message(WARNING 
-      "libuv not found via pkg-config.\n"
-      "This may indicate the libuv development package is not installed.\n"
-      "On Ubuntu 24.04, install it with: sudo apt install -y libuv1-dev\n"
-      "Ensure PKG_CONFIG_PATH includes /usr/lib/x86_64-linux-gnu/pkgconfig\n"
-    )
+if(NOT MLN_WITH_WEBGPU)
+  find_package(OpenGL REQUIRED)
+
+  # --- Linux: Handle pkg-config search for dependencies ---
+  if(UNIX AND NOT APPLE)
+    pkg_check_modules(LIBUV libuv QUIET)
+    if(NOT LIBUV_FOUND)
+      message(WARNING
+        "libuv not found via pkg-config.\n"
+        "This may indicate the libuv development package is not installed.\n"
+        "On Ubuntu 24.04, install it with: sudo apt install -y libuv1-dev\n"
+        "Ensure PKG_CONFIG_PATH includes /usr/lib/x86_64-linux-gnu/pkgconfig\n"
+      )
+    endif()
+
+    pkg_check_modules(GLFW glfw3 QUIET)
+    if(NOT GLFW_FOUND)
+      message(WARNING
+        "glfw3 not found via pkg-config.\n"
+        "This may indicate the GLFW development package is not installed.\n"
+        "On Ubuntu 24.04, install it with: sudo apt install -y libglfw3-dev\n"
+        "Ensure PKG_CONFIG_PATH includes /usr/lib/x86_64-linux-gnu/pkgconfig\n"
+      )
+    endif()
   endif()
-  
-  pkg_check_modules(GLFW glfw3 QUIET)
-  if(NOT GLFW_FOUND)
-    message(WARNING 
-      "glfw3 not found via pkg-config.\n"
-      "This may indicate the GLFW development package is not installed.\n"
-      "On Ubuntu 24.04, install it with: sudo apt install -y libglfw3-dev\n"
-      "Ensure PKG_CONFIG_PATH includes /usr/lib/x86_64-linux-gnu/pkgconfig\n"
-    )
-  endif()
-endif()
 
-# Check if we're on macOS and handle OpenGL ES differently
-if(APPLE)
-  # macOS specific settings
-  set(CMAKE_OSX_ARCHITECTURES "arm64")
-  set(CMAKE_OSX_DEPLOYMENT_TARGET "14.3")
-
-  # Find Metal framework for MapLibre
-  find_library(METAL_FRAMEWORK Metal)
-
-  # On macOS, use OpenGL instead of GLES
-  set(GLES3_FOUND TRUE)
-  set(GLES3_INCLUDE_DIRS "")
-  set(GLES3_LIBRARIES "")
-else()
-  # On other platforms, try to find GLES
-  pkg_check_modules(GLES3 glesv2)
-  if(NOT GLES3_FOUND)
-    message(WARNING "GLES2 not found, falling back to OpenGL")
+  # Check if we're on macOS and handle OpenGL ES differently
+  if(APPLE)
+    set(CMAKE_OSX_ARCHITECTURES "arm64")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.3")
+    find_library(METAL_FRAMEWORK Metal)
     set(GLES3_FOUND TRUE)
     set(GLES3_INCLUDE_DIRS "")
     set(GLES3_LIBRARIES "")
+  else()
+    pkg_check_modules(GLES3 glesv2)
+    if(NOT GLES3_FOUND)
+      message(WARNING "GLES2 not found, falling back to OpenGL")
+      set(GLES3_FOUND TRUE)
+      set(GLES3_INCLUDE_DIRS "")
+      set(GLES3_LIBRARIES "")
+    endif()
   endif()
 endif()
 

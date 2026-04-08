@@ -50,6 +50,7 @@ jobs:
           libwebp-dev \
           libzstd-dev \
           libunistring-dev \
+          libfontconfig1-dev \
           meson \
           zlib1g-dev \
           gcc \
@@ -96,6 +97,7 @@ jobs:
         cmake .. \
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
           -DBUILD_TESTS=ON \
+          -DMLN_WITH_OPENGL=ON \
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
     
     - name: Build

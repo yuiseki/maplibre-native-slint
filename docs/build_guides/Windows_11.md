@@ -14,8 +14,9 @@ This guide walks you through building the **MapLibre Native + Slint** integratio
 - **Git**
 - **Rust** (stable) via rustup
 - **vcpkg** (manifest mode; the project contains `vcpkg.json`)
+- **LLVM** (required when using the WebGPU/wgpu backend — see below)
 
-> Rendering backend: **OpenGL (WGL)**
+> Default rendering backend: **OpenGL (WGL)**. WebGPU (wgpu-native) is also supported.
 
 ---
 
@@ -40,7 +41,14 @@ This guide walks you through building the **MapLibre Native + Slint** integratio
 4. **vcpkg**
    - Clone to a convenient path (e.g. `C:\src\vcpkg`) and bootstrap.
 
-> Tip: It’s easiest to build from the **“x64 Native Tools Command Prompt for VS 2022”** so MSVC env vars are set.
+5. **LLVM** _(required for the WebGPU/wgpu backend only)_
+   - Download the Windows installer from https://releases.llvm.org/
+   - During installation, select **"Add LLVM to the system PATH"**.
+   - If the installer warns that PATH is too long and cannot be modified, that is OK —
+     CMake will locate `libclang.dll` automatically from common install paths
+     (`C:\Program Files\LLVM\lib` or `bin`).
+
+> Tip: It's easiest to build from the **"x64 Native Tools Command Prompt for VS 2022"** so MSVC env vars are set.
 > Note: VSCode integrated terminal does not work as expected...
 
 ---
@@ -66,7 +74,9 @@ set VCPKG_OVERLAY_TRIPLETS=%cd%\vendor\maplibre-native\platform\windows\vendor\v
 
 ## 4) Configure with CMake (vcpkg manifest mode)
 
-> The project uses **vcpkg manifest mode**. You **don’t** need to pass package names to `vcpkg install`; CMake will drive vcpkg using `vcpkg.json`.
+> The project uses **vcpkg manifest mode**. You **don't** need to pass package names to `vcpkg install`; CMake will drive vcpkg using `vcpkg.json`.
+
+### OpenGL backend (default)
 
 ```bat
 cmake -S . -B build-ninja -G "Ninja" ^
@@ -76,8 +86,37 @@ cmake -S . -B build-ninja -G "Ninja" ^
   -DVCPKG_HOST_TRIPLET=x64-windows
 ```
 
-- On first configure, vcpkg will install the dependencies declared in `vcpkg.json`.
-- Slint (C++ API) is **auto-fetched/built** by CMake if not found system-wide.
+### WebGPU (wgpu-native) backend
+
+```bat
+cmake -S . -B build-ninja -G "Ninja" ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_TOOLCHAIN_FILE=C:/src/vcpkg/scripts/buildsystems/vcpkg.cmake ^
+  -DVCPKG_TARGET_TRIPLET=x64-windows ^
+  -DVCPKG_HOST_TRIPLET=x64-windows ^
+  -DMLN_WITH_WEBGPU=ON ^
+  -DMLN_WEBGPU_IMPL_WGPU=ON ^
+  -DPYTHON_EXECUTABLE=C:/Python313/python.exe
+```
+
+> Adjust `-DPYTHON_EXECUTABLE` to your actual Python 3 installation path if needed.
+
+On first configure, vcpkg will install the dependencies declared in `vcpkg.json`.
+Slint (C++ API) is **auto-fetched/built** by CMake if not found system-wide.
+
+> **Note (WebGPU):** CMake will automatically build `wgpu-native` via Cargo during the configure step.
+> This requires LLVM (for `bindgen`). If CMake cannot find `libclang.dll` automatically,
+> set the environment variable before running CMake:
+> ```bat
+> set LIBCLANG_PATH=C:\Program Files\LLVM\lib
+> ```
+> If the automatic build fails, you can pre-build wgpu-native manually and re-run CMake:
+> ```bat
+> set LIBCLANG_PATH=C:\Program Files\LLVM\lib
+> cd vendor\maplibre-native\vendor\wgpu-native
+> cargo build --release
+> cd ..\..\..\..
+> ```
 
 ---
 
@@ -94,7 +133,7 @@ cmake --build build-ninja -j
 The example app and DLLs are placed in the build directory:
 
 ```bat
-cd build-ninja
+cd build-ninja\cpp
 maplibre-slint-example.exe
 ```
 
@@ -102,26 +141,26 @@ maplibre-slint-example.exe
 
 ## 7) Expected build outputs
 
-- `maplibre-slint-example.exe` — Example application
-- `_deps\slint-build\slint_cpp.dll` — Slint runtime (copied next to the executable)
-- `slint_generated_map_window_1.cpp` / `map_window.h` — Generated Slint UI sources
-- `vendor\maplibre-native\mbgl-*.lib` — MapLibre Native static libs from the build
+- `build-ninja\cpp\maplibre-slint-example.exe` — Example application
+- `build-ninja\cpp\slint_cpp.dll` — Slint runtime
+- `build-ninja\cpp\cpr.dll` — HTTP client library
+- `build-ninja\cpp\wgpu_native.dll` — wgpu-native runtime _(WebGPU backend only, copied automatically)_
 
 ---
 
 ## Notes
 
 - **OpenGL headers** are provided by vcpkg (header-only _opengl-registry_, _egl-registry_).
-- MSVC requires defining `_USE_MATH_DEFINES` before including `<cmath>` to get constants like `M_PI`. This project’s build already defines it, but it’s good to know.
+- MSVC requires defining `_USE_MATH_DEFINES` before including `<cmath>` to get constants like `M_PI`. This project's build already defines it, but it's good to know.
 
 ---
 
 ## Troubleshooting
 
-### “In manifest mode, `vcpkg install` does not support individual package arguments”
+### "In manifest mode, `vcpkg install` does not support individual package arguments"
 
 - Cause: running `vcpkg install zlib ...` in a manifest project.
-- Fix: don’t pass package names. Let CMake drive vcpkg, or run `vcpkg install` **without arguments** in the repo root (it will read `vcpkg.json`).
+- Fix: don't pass package names. Let CMake drive vcpkg, or run `vcpkg install` **without arguments** in the repo root (it will read `vcpkg.json`).
 
 ### Unresolved externals for `uv_*` (libuv)
 
@@ -144,13 +183,26 @@ maplibre-slint-example.exe
 
 ### Slint not found
 
-- The build system will **auto-fetch** Slint if it’s not installed system-wide. If you prefer system-wide installs, follow Slint’s C++ docs and ensure `slint-cpp` is visible via CMake/PKG.
+- The build system will **auto-fetch** Slint if it's not installed system-wide. If you prefer system-wide installs, follow Slint's C++ docs and ensure `slint-cpp` is visible via CMake/PKG.
+
+### WebGPU: `Unable to find libclang` during cargo build
+
+- Cause: `bindgen` (used by wgpu-native) requires `libclang.dll` from LLVM.
+- Fix: Install LLVM from https://releases.llvm.org/ and set `LIBCLANG_PATH` to the directory containing `libclang.dll` (typically `C:\Program Files\LLVM\lib`).
+
+### WebGPU: `wgpu_native.dll` not found at runtime
+
+- The DLL is automatically copied to the output directory during the CMake build.
+  If it is missing, copy it manually:
+  ```bat
+  copy vendor\maplibre-native\vendor\wgpu-native\target\release\wgpu_native.dll build-ninja\cpp\
+  ```
 
 ---
 
 ## Performance tips
 
-- First build can take a while (MapLibre Native + Slint).
+- First build can take a while (MapLibre Native + Slint + optionally wgpu-native).
 - Using Ninja and a recent MSVC significantly speeds up incremental builds.
 - SSD and more RAM help with link times.
 
@@ -160,6 +212,6 @@ maplibre-slint-example.exe
 
 1. Start the sample: `maplibre-slint-example.exe`
 2. Tweak the UI in `cpp/map_window.slint`
-3. Explore integration code in `src/slint_maplibre.cpp`
+3. Explore integration code in `cpp/src/slint_maplibre_headless.cpp`
 4. Adjust dependencies in `vcpkg.json` if you add features
 ````
