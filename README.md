@@ -1,6 +1,6 @@
 # MapLibre Native + Slint Integration
 
-This project demonstrates the integration of [MapLibre Native](https://github.com/maplibre/maplibre-native) (C++ mapping library) with Slint UI framework for creating interactive map applications.
+This project demonstrates the integration of [MapLibre Native](https://github.com/maplibre/maplibre-native) (C++ mapping library) with the [Slint](https://slint.dev/) UI framework for creating interactive map applications.
 
 ## Quick Start
 
@@ -23,15 +23,15 @@ For detailed build instructions, see the platform-specific guides:
 ## Prerequisites
 
 - C++20 compatible compiler
-- CMake 3.21 or later
-- Rust toolchain (for Slint auto-download)
-- OpenGL/GLES development headers
+- CMake 3.24 or later
+- Rust toolchain (required by Slint and wgpu-native)
 - Network connectivity for downloading dependencies
+
+For the WebGPU (wgpu-native) backend, LLVM is also required on Windows (for `bindgen`).
 
 ## Basic Build Process
 
 ```bash
-# Install dependencies (see platform guides for details)
 # Clone and prepare
 git clone https://github.com/maplibre/maplibre-native-slint.git
 cd maplibre-native-slint
@@ -42,49 +42,39 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
 # Run
-./build/maplibre-slint-example
+./build/cpp/maplibre-slint-example
 ```
 
-**Note**: Slint dependencies are now automatically resolved! CMake will download and build Slint if it's not found system-wide.
+See the platform-specific guides for full instructions including vcpkg setup on Windows.
 
 ## Project Structure
 
-- `src/` - Main source code for the MapLibre-Slint integration
-- `examples/` - Example applications
-- `platform/` - Platform-specific implementations (RunLoop, FileSource)
-- `vendor/` - MapLibre Native submodule
+- `cpp/` - C++ example application (MapLibre Native + Slint integration)
+- `rust/` - Rust example application (uses [maplibre-native-rs](https://github.com/maplibre/maplibre-native-rs))
+- `vendor/` - MapLibre Native and cpr submodules
+- `docs/` - Platform-specific build guides
 - `CMakeLists.txt` - Build configuration
 
 ## Features
 
-- **Hybrid GPU-CPU Rendering**: MapLibre Native renders on GPU, with pixel data transferred to CPU for Slint integration.
+- **WebGPU rendering**: wgpu-native backend supported on macOS (Apple Silicon) and Windows x64
 - **Slint UI Integration**: Displays maps within Slint user interfaces
 - **Custom File Source**: HTTP-based tile and resource loading
-- **Touch/Mouse Interaction**: Interactive map navigation (Partial, in progress)
-- **Cross-platform**: Supports Linux, Windows, and macOS
+- **Touch/Mouse Interaction**: Interactive map navigation (partial, in progress)
+- **Cross-platform**: Supports Linux, macOS, and Windows
 
 ## Platform and Backend Support
 
-### Graphics Backend Features
-
-This project supports multiple rendering backends, automatically selected based on the target platform:
-
-- **OpenGL/GLES** (primary on Linux/Windows): Uses HeadlessFrontend with CPU-based rendering
-- **Metal** (primary on macOS): Native Metal framework integration for Apple Silicon
-- **Vulkan**: Not currently implemented
-
 ### Platform Support Matrix
 
-The following platform and graphics backend combinations are supported and tested:
-
-| Platform        | OpenGL/GLES | Metal | Vulkan | CI Status |
-|----------------|-------------|-------|---------|-----------|
-| Linux x86_64   | ✅          | ❌    | ❌      | ✅        |
-| Linux ARM64    | 🟨*         | ❌    | ❌      | ❌        |
-| Windows x86_64 | ✅          | ❌    | ❌      | ❌        |
-| Windows ARM64  | 🟨*         | ❌    | ❌      | ❌        |
-| macOS ARM64    | ❌          | ✅    | ❌      | ❌        |
-| macOS x86_64   | ❌          | 🟨*   | ❌      | ❌        |
+| Platform        | OpenGL/GLES | Metal | WebGPU (wgpu) | CI Status |
+|----------------|-------------|-------|----------------|-----------|
+| Linux x86_64   | ✅          | ❌    | 🟨*            | ✅        |
+| Linux ARM64    | 🟨*         | ❌    | 🟨*            | ❌        |
+| Windows x86_64 | ✅          | ❌    | ✅             | ✅        |
+| Windows ARM64  | 🟨*         | ❌    | 🟨*            | ❌        |
+| macOS ARM64    | ❌          | ✅    | ✅             | ❌        |
+| macOS x86_64   | ❌          | 🟨*   | 🟨*            | ❌        |
 
 **Legend:**
 - ✅ **Fully Supported**: Tested and working
@@ -92,65 +82,52 @@ The following platform and graphics backend combinations are supported and teste
 - ❌ **Not Supported**: Not implemented or not compatible
 
 **Notes:**
-- \* Architecture should work but hasn't been extensively tested
-- CI currently runs only on Ubuntu x86_64 with Xvfb for headless testing
-- macOS builds explicitly target ARM64 only (x86_64 is excluded)
-- Windows builds target x64 architecture via MSVC toolchain
+- \* Architecture should work but has not been extensively tested
+- CI runs on Ubuntu x86_64 (OpenGL/Xvfb) and Windows x64 (WebGPU/wgpu)
+- macOS builds target ARM64 only
 
 ### Build Configuration Options
 
-The project automatically detects and configures the appropriate backend:
-
 ```bash
-# Linux/Windows (OpenGL/GLES)
+# Linux/Windows with OpenGL (default)
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-# macOS (Metal backend)
+# macOS with Metal backend
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DMLN_WITH_METAL=ON -DMLN_WITH_OPENGL=OFF -G Xcode
+
+# Windows or macOS with WebGPU (wgpu-native) backend
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DMLN_WITH_WEBGPU=ON -DMLN_WEBGPU_IMPL_WGPU=ON
 ```
 
-## Technical Details
-
-### API Compatibility
-
-This project has been updated to work with the latest MapLibre Native APIs:
-
-- Modern RunLoop API using composition instead of inheritance
-- Updated ResourceOptions without deprecated methods
-- Current HeadlessFrontend construction patterns
-- Proper OpenGL context management
-
-### Rendering Pipeline
+## Rendering Pipeline
 
 The current rendering pipeline involves GPU-to-CPU data transfer:
 
-1. MapLibre Native's `HeadlessFrontend` renders the map using GPU (OpenGL/Metal/etc.) to an internal framebuffer.
-2. The GPU-rendered image is read back to CPU memory as `mbgl::PremultipliedImage`.
-3. This CPU image data is converted from premultiplied alpha format to non-premultiplied format.
-4. The pixel data is copied into a `slint::SharedPixelBuffer` for CPU-based rendering.
-5. Slint displays the map image within its UI using the CPU pixel buffer.
-6. User interactions from the Slint UI are captured and forwarded to the MapLibre Native map instance.
+1. MapLibre Native's `HeadlessFrontend` renders the map to an internal framebuffer via the selected backend (OpenGL/Metal/wgpu).
+2. The rendered image is read back to CPU memory as `mbgl::PremultipliedImage`.
+3. The pixel data is converted and copied into a `slint::SharedPixelBuffer`.
+4. Slint displays the map image within its UI.
+5. User interactions from Slint are forwarded to the MapLibre Native map instance.
 
-**Performance Note**: This GPU-to-CPU data transfer creates overhead. Future improvements could use `BorrowedOpenGLTexture` for direct GPU texture sharing.
+**Performance note**: GPU-to-CPU readback creates overhead. A future improvement would use `BorrowedOpenGLTexture` or equivalent to share the GPU texture directly with Slint.
 
-## To Do
+## Roadmap
 
-- [ ] Implement a more efficient GPU-based rendering pipeline using `BorrowedOpenGLTexture` to eliminate GPU-to-CPU data transfer overhead.
-- [ ] Fully implement and stabilize touch and mouse interactions (zooming, panning, rotation).
-- [ ] Add more examples and improve documentation.
+- [ ] Migrate to a pure Rust implementation using [maplibre-native-rs](https://github.com/maplibre/maplibre-native-rs) and the Slint Rust API — enables WebAssembly support ([issue #46](https://github.com/maplibre/maplibre-native-slint/issues/46))
+- [ ] Implement GPU-based rendering pipeline to eliminate GPU-to-CPU readback overhead
+- [ ] Fully stabilize touch and mouse interactions (zooming, panning, rotation)
 
 ## Troubleshooting
 
 ### Build Issues
 
-- Ensure all dependencies are installed
-- Check that Slint is properly installed system-wide
-- Verify OpenGL/GLES development headers are available
+- Ensure all dependencies are installed per the platform guide
+- Run `git submodule update --init --recursive` if vendor directories are empty
+- On Windows with the WebGPU backend, install LLVM and ensure `libclang.dll` is accessible
 
 ### Runtime Issues
 
-- For headless environments, set up X11 forwarding or virtual display
-- Check that OpenGL drivers are properly installed
+- For headless Linux environments, set up Xvfb or equivalent virtual display
 - Verify network connectivity for map tile loading
 
 ## Contributing
