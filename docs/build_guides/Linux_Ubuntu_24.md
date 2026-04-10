@@ -1,8 +1,10 @@
 # Building on Ubuntu 24.04 LTS
 
-This guide provides step-by-step instructions for building the MapLibre Native + Slint integration project on Ubuntu 24.04 LTS.
+This guide builds the canonical C++ reference application for `maplibre-native-slint` on Ubuntu 24.04 LTS.
 
-The default build on Linux now uses the WebGPU renderer with the `wgpu-native` implementation.
+The repository's reusable Slint API lives in `src/`, but the authoritative backend wiring currently lives in `cpp/`. If you want the path that is expected to work well today, this is it.
+
+The default Linux build uses the WebGPU renderer with the `wgpu-native` implementation.
 
 ## System Requirements
 
@@ -142,7 +144,7 @@ You should see:
 
 The build artifacts are located in the `build/cpp/` subdirectory.
 
-## Step 7: Test the Application
+## Step 7: Run the Reference Application
 
 If you have a graphical environment:
 ```bash
@@ -237,13 +239,16 @@ Check firewall settings and network connectivity.
 - **Memory**: Parallel compilation with `-j$(nproc)` can use 2-4GB of RAM; reduce parallel jobs if experiencing memory issues
 - **Generator choice**: Ninja is faster than Unix Makefiles for incremental builds; use `cmake --build build --parallel $(nproc)` for optimal performance
 
-## Next Steps
+## What To Read Next
 
-After successful build:
+After a successful build:
+
 1. Run the example application in a graphical environment
-2. Explore the reusable Slint component contract in `src/`
-3. Modify one of the demo shells in `cpp/map_window.slint` or `rust/main.slint`
-4. Check the backend integration code in `cpp/main.cpp` or `rust/src/maplibre.rs`
+2. Read the reusable Slint surface in `src/maplibre.slint`
+3. Read `cpp/map_window.slint` to see how the reusable component is embedded
+4. Read `cpp/main.cpp` to see the canonical `MMapAdapter` wiring
+
+The Rust demo is useful for API comparison, but the C++ path is the canonical backend integration.
 
 ## Ubuntu Version Notes
 
