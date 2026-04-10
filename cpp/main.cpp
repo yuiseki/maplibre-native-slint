@@ -56,9 +56,7 @@ int main(int argc, char** argv) {
         [=](float x, float y) { slint_map->handle_mouse_release(x, y); });
 
     main_window->global<MMapAdapter>().on_mouse_moved(
-        [=](float x, float y) {
-            slint_map->handle_mouse_move(x, y, true);
-        });
+        [=](float x, float y) { slint_map->handle_mouse_move(x, y, true); });
 
     main_window->global<MMapAdapter>().on_double_clicked(
         [=](float x, float y, bool shift) {

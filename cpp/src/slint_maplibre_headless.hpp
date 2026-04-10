@@ -117,7 +117,9 @@ private:
 
     // Camera accessors for adapter state updates
 public:
-    mbgl::Map* get_map() const { return map.get(); }
+    mbgl::Map* get_map() const {
+        return map.get();
+    }
 
 private:
     // Style/loading state management
