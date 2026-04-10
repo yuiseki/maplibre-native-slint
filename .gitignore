@@ -41,3 +41,4 @@ vendor/
 cache.sqlite
 cache.sqlite-journal
 test_cache.sqlite
+maplibre_database.sqlite
