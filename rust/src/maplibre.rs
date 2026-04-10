@@ -1,138 +1,152 @@
 use std::cell::RefCell;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use slint::ComponentHandle;
 
+use crate::MMapAdapter;
 use crate::MapWindow;
-use crate::MapAdapter;
 
 mod headless;
-pub use headless::create_map;
+use headless::MapCamera;
 use headless::MapLibre;
+pub use headless::create_map;
+
+fn push_camera_state(ui: &MapWindow, camera: MapCamera) {
+    let adapter = ui.global::<MMapAdapter>();
+    adapter.set_current_lat(camera.lat as f32);
+    adapter.set_current_lon(camera.lon as f32);
+    adapter.set_current_zoom(camera.zoom as f32);
+    adapter.set_current_bearing(camera.bearing as f32);
+    adapter.set_current_pitch(camera.pitch as f32);
+}
+
+fn push_frame(ui: &MapWindow, map: &mut MapLibre) {
+    let image = map.read_still_image();
+    let img_buffer = image.as_image();
+    let img = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+        img_buffer.as_raw(),
+        img_buffer.width(),
+        img_buffer.height(),
+    );
+    ui.global::<MMapAdapter>()
+        .set_frame(slint::Image::from_rgba8(img));
+}
 
 /// Initialize UI callbacks and map interactions
-pub fn init(ui: &MapWindow, map: &Arc<RefCell<MapLibre>>) {
-    ui.on_window_size_changed({
-        let map = Arc::downgrade(map);
+pub fn init(ui: &MapWindow, map: &Rc<RefCell<MapLibre>>) {
+    let ui_handle = ui.as_weak();
+
+    ui.on_map_size_changed({
+        let map = Rc::downgrade(map);
+        let ui_handle = ui_handle.clone();
         move || {
-            if let Some(map) = map.upgrade() {
-                // Window size changed - could be used for responsive layout
+            if let (Some(map), Some(ui)) = (map.upgrade(), ui_handle.upgrade()) {
+                let mut map = map.borrow_mut();
+                map.resize(ui.get_map_size());
+                map.mark_dirty();
             }
         }
     });
 
-    ui.on_map_size_changed({
-        let map = Arc::downgrade(map);
+    ui.global::<MMapAdapter>().on_tick({
+        let map = Rc::downgrade(map);
+        let ui_handle = ui_handle.clone();
         move || {
-            // Map size changed - renderer is already resized by the UI
-        }
-    });
-
-    ui.global::<MapAdapter>().on_tick_map_loop({
-        let map = Arc::downgrade(map);
-        let ui_handle = ui.as_weak();
-        move || {
-            if let Some(map_arc) = map.upgrade() {
-                let mut map = map_arc.borrow_mut();
+            if let Some(map) = map.upgrade() {
+                let mut map = map.borrow_mut();
                 map.render_once();
-                if map.updated() {
-                    let image = map.read_still_image();
-                    let img_buffer = image.as_image();
-                    let img = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                        img_buffer.as_raw(),
-                        img_buffer.width(),
-                        img_buffer.height(),
-                    );
+                if map.take_frame_updated() {
                     if let Some(ui) = ui_handle.upgrade() {
-                        ui.global::<MapAdapter>()
-                            .set_map_texture(slint::Image::from_rgba8(img));
+                        push_frame(&ui, &mut map);
+                        push_camera_state(&ui, map.camera());
+                        ui.global::<MMapAdapter>()
+                            .set_style_loaded(map.style_loaded());
+                        ui.global::<MMapAdapter>().set_map_idle(map.map_idle());
                     }
                 }
             }
         }
     });
 
-    ui.global::<MapAdapter>().on_mouse_press({
-        let map = Arc::downgrade(map);
+    ui.global::<MMapAdapter>().on_mouse_pressed({
+        let map = Rc::downgrade(map);
         move |x: f32, y: f32| {
-            if let Some(map_arc) = map.upgrade() {
-                // TODO: Handle mouse press on map
+            if let Some(map) = map.upgrade() {
+                map.borrow_mut().mouse_pressed(x, y);
             }
         }
     });
 
-    ui.global::<MapAdapter>().on_mouse_release({
-        let map = Arc::downgrade(map);
+    ui.global::<MMapAdapter>().on_mouse_released({
+        let map = Rc::downgrade(map);
+        move |_x: f32, _y: f32| {
+            if let Some(map) = map.upgrade() {
+                map.borrow_mut().mouse_released();
+            }
+        }
+    });
+
+    ui.global::<MMapAdapter>().on_mouse_moved({
+        let map = Rc::downgrade(map);
         move |x: f32, y: f32| {
-            if let Some(map_arc) = map.upgrade() {
-                // TODO: Handle mouse release on map
+            if let Some(map) = map.upgrade() {
+                map.borrow_mut().mouse_moved(x, y);
             }
         }
     });
 
-    ui.global::<MapAdapter>().on_mouse_move({
-        let map = Arc::downgrade(map);
-        move |x: f32, y: f32, _shift: bool| {
-            if let Some(map_arc) = map.upgrade() {
-                // TODO: Handle mouse move on map
+    ui.global::<MMapAdapter>().on_double_clicked({
+        let map = Rc::downgrade(map);
+        move |_x: f32, _y: f32, shift: bool| {
+            if let Some(map) = map.upgrade() {
+                map.borrow_mut().double_clicked(shift);
             }
         }
     });
 
-    ui.global::<MapAdapter>().on_double_click_with_shift({
-        let map = Arc::downgrade(map);
-        move |_x: f32, _y: f32, _shift: bool| {
-            if let Some(map_arc) = map.upgrade() {
-                // TODO: Handle double click with shift on map
+    ui.global::<MMapAdapter>().on_wheel_zoomed({
+        let map = Rc::downgrade(map);
+        move |_x: f32, _y: f32, delta: f32| {
+            if let Some(map) = map.upgrade() {
+                map.borrow_mut().wheel_zoomed(delta);
             }
         }
     });
 
-    ui.global::<MapAdapter>().on_wheel_zoom({
-        let map = Arc::downgrade(map);
-        move |_x: f32, _y: f32, _delta: f32| {
-            if let Some(map_arc) = map.upgrade() {
-                // TODO: Handle wheel zoom on map
-            }
-        }
-    });
-
-    ui.global::<MapAdapter>().on_style_changed({
-        let map = Arc::downgrade(map);
+    ui.global::<MMapAdapter>().on_request_style_change({
+        let map = Rc::downgrade(map);
         move |style_url: slint::SharedString| {
-            if let Some(map_arc) = map.upgrade() {
-                let mut map = map_arc.borrow_mut();
+            if let Some(map) = map.upgrade() {
+                let mut map = map.borrow_mut();
                 map.load_style(&style_url);
             }
         }
     });
 
-    ui.global::<MapAdapter>().on_fly_to({
-        let map = Arc::downgrade(map);
-        move |_location: slint::SharedString| {
-            if let Some(map_arc) = map.upgrade() {
-                // TODO: Implement fly_to for different locations
-                // - "paris" -> lat: 48.8566, lon: 2.3522
-                // - "new_york" -> lat: 40.7128, lon: -74.0060
-                // - "tokyo" -> lat: 35.6762, lon: 139.6503
+    ui.global::<MMapAdapter>().on_request_fly_to({
+        let map = Rc::downgrade(map);
+        move |lat: f32, lon: f32, zoom: f32| {
+            if let Some(map) = map.upgrade() {
+                map.borrow_mut()
+                    .fly_to(f64::from(lat), f64::from(lon), f64::from(zoom));
             }
         }
     });
 
-    ui.global::<MapAdapter>().on_pitch_changed({
-        let map = Arc::downgrade(map);
-        move |_pitch: i32| {
-            if let Some(map_arc) = map.upgrade() {
-                // TODO: Handle pitch change
+    ui.global::<MMapAdapter>().on_request_pitch_change({
+        let map = Rc::downgrade(map);
+        move |pitch: f32| {
+            if let Some(map) = map.upgrade() {
+                map.borrow_mut().set_pitch(f64::from(pitch));
             }
         }
     });
 
-    ui.global::<MapAdapter>().on_bearing_changed({
-        let map = Arc::downgrade(map);
-        move |_bearing: f32| {
-            if let Some(map_arc) = map.upgrade() {
-                // TODO: Handle bearing change
+    ui.global::<MMapAdapter>().on_request_bearing_change({
+        let map = Rc::downgrade(map);
+        move |bearing: f32| {
+            if let Some(map) = map.upgrade() {
+                map.borrow_mut().set_bearing(f64::from(bearing));
             }
         }
     });

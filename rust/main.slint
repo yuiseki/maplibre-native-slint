@@ -1,82 +1,45 @@
 import { Button, VerticalBox, ComboBox, HorizontalBox, Slider } from "std-widgets.slint";
+import { MMapView, MMapAdapter } from "../src/maplibre.slint";
 
-// Define a struct to hold window size
+export { MMapAdapter }
+
 export struct Size {
     width: length,
     height: length,
 }
 
-export global MapAdapter {
-    in-out property <image> map_texture;
-    callback tick_map_loop();
-    callback mouse_press(float, float);
-    callback mouse_release(float, float);
-    callback mouse_move(float, float, bool);
-    callback style_changed(string);
-    callback double_click_with_shift(float, float, bool);
-    callback wheel_zoom(float, float, float);
-    callback fly_to(string);
-    callback pitch_changed(int);
-    callback bearing_changed(float);
-}
-
 export component MapWindow inherits Window {
-    // Default window size
     preferred-width: 800px;
     preferred-height: 600px;
 
-    // Expose window size via Size-typed property
-    out property<Size> window-size: { width: root.width, height: root.height };
-
-    // Callback when the window size changes
-    callback window-size-changed;
-
-    // Invoke callback when window-size changes
-    changed window-size => { window-size-changed(); }
-
-    // Expose map image area size so backend can match framebuffer size
-    out property<Size> map-size: { width: map.width, height: map.height };
+    out property <Size> map-size: { width: map.width, height: map.height };
     callback map-size-changed;
     changed map-size => { map-size-changed(); }
 
-    property <[string]> style_urls: [
+    property <[string]> style-urls: [
         "https://demotiles.maplibre.org/style.json",
-        "https://tile.openstreetmap.jp/styles/osm-bright/style.json"
+        "https://tile.openstreetmap.jp/styles/osm-bright/style.json",
     ];
-
-    Timer {
-        interval: 16ms;
-        running: true;
-        triggered => {
-            MapAdapter.tick_map_loop();
-        }
-    }
 
     VerticalBox {
         HorizontalBox {
             ComboBox {
-                model: root.style_urls;
+                model: root.style-urls;
                 selected(url) => {
-                    MapAdapter.style_changed(url);
+                    map.style-url = url;
                 }
             }
             Button {
                 text: "Paris";
-                clicked => {
-                    MapAdapter.fly_to("paris");
-                }
+                clicked => { map.fly-to(48.8566, 2.3522, 10); }
             }
             Button {
                 text: "New York";
-                clicked => {
-                    MapAdapter.fly_to("new_york");
-                }
+                clicked => { map.fly-to(40.7128, -74.0060, 10); }
             }
             Button {
                 text: "Tokyo";
-                clicked => {
-                    MapAdapter.fly_to("tokyo");
-                }
+                clicked => { map.fly-to(35.6895, 139.6917, 10); }
             }
             Text {
                 text: "Pitch:";
@@ -87,7 +50,7 @@ export component MapWindow inherits Window {
                 maximum: 100;
                 value: 0;
                 changed value => {
-                    MapAdapter.pitch_changed(self.value);
+                    map.set-pitch(self.value / 100 * 60);
                 }
             }
             Text {
@@ -99,47 +62,19 @@ export component MapWindow inherits Window {
                 maximum: 100;
                 value: 0;
                 changed value => {
-                    MapAdapter.bearing_changed(self.value);
+                    map.set-bearing(self.value / 100 * 360);
                 }
+            }
+            Text {
+                text: "Zoom: " + round(map.current-zoom);
+                vertical-alignment: center;
             }
         }
-        map := Image {
-            source: MapAdapter.map_texture;
-
-            touch := TouchArea {
-                // Track last seen Shift modifier state from pointer events
-                property <bool> last-shift: false;
-                mouse-cursor: self.pressed ? grabbing : grab;
-
-                // Handle all pointer events properly
-                pointer-event(e) => {
-                    self.last-shift = e.modifiers.shift;
-
-                    if (e.kind == PointerEventKind.down) {
-                        MapAdapter.mouse_press(self.mouse-x / 1px, self.mouse-y / 1px);
-                    } else if (e.kind == PointerEventKind.up) {
-                        MapAdapter.mouse_release(self.mouse-x / 1px, self.mouse-y / 1px);
-                    } else if (e.kind == PointerEventKind.move && self.pressed) {
-                        MapAdapter.mouse_move(self.mouse-x / 1px, self.mouse-y / 1px, true);
-                    }
-                }
-
-                // Double-click to zoom in (backend handles clamping)
-                double-clicked => {
-                    MapAdapter.double_click_with_shift(self.mouse-x / 1px,
-                                                       self.mouse-y / 1px,
-                                                       self.last-shift);
-                }
-
-                // Mouse-wheel / trackpad scroll to zoom
-                scroll-event(event) => {
-                    // Positive delta_y: zoom out; Negative: zoom in
-                    MapAdapter.wheel_zoom(self.mouse-x / 1px,
-                                           self.mouse-y / 1px,
-                                           event.delta_y / 1px);
-                    return accept;
-                }
-            }
+        map := MMapView {
+            style-url: "https://demotiles.maplibre.org/style.json";
+            center-lat: 0;
+            center-lon: 0;
+            zoom: 1;
         }
     }
 }

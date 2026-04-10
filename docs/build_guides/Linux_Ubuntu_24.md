@@ -241,9 +241,9 @@ Check firewall settings and network connectivity.
 
 After successful build:
 1. Run the example application in a graphical environment
-2. Explore the source code in `src/` and `examples/`
-3. Modify the Slint UI in `cpp/map_window.slint`
-4. Check the integration code in `src/slint_maplibre.cpp`
+2. Explore the reusable Slint component contract in `src/`
+3. Modify one of the demo shells in `cpp/map_window.slint` or `rust/main.slint`
+4. Check the backend integration code in `cpp/main.cpp` or `rust/src/maplibre.rs`
 
 ## Ubuntu Version Notes
 

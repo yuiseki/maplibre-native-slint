@@ -4,9 +4,7 @@ slint::include_modules!();
 
 fn main() {
     let ui = MapWindow::new().unwrap();
-
-    let size = ui.get_window_size();
-    let map = maplibre::create_map(size);
+    let map = maplibre::create_map(ui.get_map_size());
 
     maplibre::init(&ui, &map);
 
