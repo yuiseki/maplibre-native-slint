@@ -400,6 +400,47 @@ void SlintMapLibre::arm_forced_repaint_ms(int ms) {
     }
 }
 
+void SlintMapLibre::fly_to(double lat, double lon, double target_zoom_value) {
+    if (!map)
+        return;
+
+    mbgl::LatLng target{lat, lon};
+
+    // Capture start camera
+    const auto cam = map->getCameraOptions();
+    mbgl::LatLng start_center = cam.center.value_or(target);
+    double start_zoom = cam.zoom.value_or(10.0);
+
+    auto deg2rad = [](double d) { return d * M_PI / 180.0; };
+    auto approx_distance_deg = [&](const mbgl::LatLng& a,
+                                   const mbgl::LatLng& b) {
+        double lat1r = deg2rad(a.latitude());
+        double lat2r = deg2rad(b.latitude());
+        double dlatr = lat2r - lat1r;
+        double dlonr = deg2rad(b.longitude() - a.longitude());
+        double x = dlonr * std::cos((lat1r + lat2r) * 0.5);
+        double y = dlatr;
+        return std::sqrt(x * x + y * y) * 180.0 / M_PI;
+    };
+    double dist = approx_distance_deg(start_center, target);
+    double zoom_out_delta = std::max(2.0, 8.0 + std::min(3.0, dist / 8.0));
+    double mid_zoom =
+        std::max(min_zoom, std::min(max_zoom, start_zoom - zoom_out_delta));
+
+    custom_anim.active = true;
+    custom_anim.start_center = start_center;
+    custom_anim.target_center = target;
+    custom_anim.start_zoom = start_zoom;
+    custom_anim.target_zoom = target_zoom_value;
+    custom_anim.mid_zoom = mid_zoom;
+    custom_anim.mid_ratio = 0.60;
+    custom_anim.center_hold_ratio = 0.20;
+    custom_anim.start_time = std::chrono::steady_clock::now();
+    custom_anim.duration_ms = 2500;
+    request_repaint();
+    arm_forced_repaint_ms(custom_anim.duration_ms + 600);
+}
+
 void SlintMapLibre::fly_to(const std::string& location) {
     if (!map)
         return;

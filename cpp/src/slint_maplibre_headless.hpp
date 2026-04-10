@@ -72,6 +72,7 @@ public:
     void set_bearing(float bearing_value);
     void setStyleUrl(const std::string& url);
     void fly_to(const std::string& location);
+    void fly_to(double lat, double lon, double zoom);
 
     // Manually drive the map's run loop
     void run_map_loop();
@@ -114,6 +115,13 @@ private:
     double min_zoom = 0.0;
     double max_zoom = 22.0;
 
+    // Camera accessors for adapter state updates
+public:
+    mbgl::Map* get_map() const {
+        return map.get();
+    }
+
+private:
     // Style/loading state management
     std::atomic<bool> style_loaded{false};
     std::atomic<bool> map_idle{false};
