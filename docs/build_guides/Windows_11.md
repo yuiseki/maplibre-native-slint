@@ -1,7 +1,7 @@
 ````markdown
 # Building on Windows 11
 
-This guide walks you through building the **MapLibre Native + Slint** integration on Windows 11 with MSVC, CMake, Ninja, and vcpkg (manifest mode).
+This guide walks you through building the canonical C++ reference application for `maplibre-native-slint` on Windows 11 with MSVC, CMake, Ninja, and vcpkg (manifest mode).
 
 ---
 
@@ -16,7 +16,7 @@ This guide walks you through building the **MapLibre Native + Slint** integratio
 - **vcpkg** (manifest mode; the project contains `vcpkg.json`)
 - **LLVM** (required when using the WebGPU/wgpu backend — see below)
 
-> Default rendering backend: **OpenGL (WGL)**. WebGPU (wgpu-native) is also supported.
+> Default rendering backend: **WebGPU (`wgpu-native`)**. OpenGL remains available as a fallback/comparison path.
 
 ---
 
@@ -76,7 +76,7 @@ set VCPKG_OVERLAY_TRIPLETS=%cd%\vendor\maplibre-native\platform\windows\vendor\v
 
 > The project uses **vcpkg manifest mode**. You **don't** need to pass package names to `vcpkg install`; CMake will drive vcpkg using `vcpkg.json`.
 
-### OpenGL backend (default)
+### OpenGL fallback
 
 ```bat
 cmake -S . -B build-ninja -G "Ninja" ^
@@ -128,7 +128,7 @@ cmake --build build-ninja -j
 
 ---
 
-## 6) Run
+## 6) Run the Reference Application
 
 The example app and DLLs are placed in the build directory:
 
@@ -211,7 +211,7 @@ maplibre-slint-example.exe
 ## Next steps
 
 1. Start the sample: `maplibre-slint-example.exe`
-2. Tweak the UI in `cpp/map_window.slint`
-3. Explore integration code in `cpp/src/slint_maplibre_headless.cpp`
-4. Adjust dependencies in `vcpkg.json` if you add features
+2. Read `src/maplibre.slint` for the reusable Slint surface
+3. Read `cpp/map_window.slint` for the demo shell
+4. Read `cpp/main.cpp` for the canonical backend wiring
 ````

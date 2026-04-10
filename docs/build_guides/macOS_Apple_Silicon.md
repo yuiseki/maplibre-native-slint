@@ -1,6 +1,8 @@
 # Building on macOS (Apple Silicon)
 
-This guide provides step-by-step instructions for building the MapLibre Native + Slint integration project on macOS with Apple Silicon (M1/M2/M3/M4).
+This guide provides step-by-step instructions for building the canonical C++ reference application for `maplibre-native-slint` on macOS with Apple Silicon (M1/M2/M3/M4).
+
+The reusable Slint API lives in `src/`, but the authoritative backend wiring currently lives in `cpp/`.
 
 ## System Requirements
 
@@ -54,19 +56,26 @@ git submodule update --init --recursive
 
 ## Step 4: Build the Project
 
-The project is configured to build with the Metal rendering backend.
+The default desktop build now prefers WebGPU (`wgpu-native`). Metal is still useful as a fallback/comparison path on macOS.
 
 ```bash
 # Configure with CMake. This will also download and build Slint automatically.
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DMLN_WITH_METAL=ON -DMLN_WITH_OPENGL=OFF -G Xcode .
+cmake -B build -DCMAKE_BUILD_TYPE=Release -G Xcode .
 
 # Build the project
 cmake --build build
 ```
 
+If you specifically want to compare against the Metal path:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DMLN_WITH_METAL=ON -DMLN_WITH_OPENGL=OFF -G Xcode .
+cmake --build build
+```
+
 The build process can take 10-15 minutes on the first run. Subsequent builds will be much faster.
 
-## Step 5: Run the Application
+## Step 5: Run the Reference Application
 
 After a successful build, the executable will be located in the `build/Debug` directory.
 
@@ -75,6 +84,12 @@ After a successful build, the executable will be located in the `build/Debug` di
 ```
 
 This will launch a window displaying the map. You can interact with it using your mouse to pan and zoom.
+
+After that, the most important files to inspect are:
+
+- `src/maplibre.slint`
+- `cpp/map_window.slint`
+- `cpp/main.cpp`
 
 ## Troubleshooting
 
