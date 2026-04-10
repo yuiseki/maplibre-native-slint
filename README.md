@@ -51,6 +51,7 @@ See the platform-specific guides for full instructions including vcpkg setup on 
 
 ## Project Structure
 
+- `src/` - reusable Slint component library (`MMapView`, `MMapAdapter`) shared by the demo apps
 - `cpp/` - C++ example application (MapLibre Native + Slint integration)
 - `rust/` - Rust example application (uses [maplibre-native-rs](https://github.com/maplibre/maplibre-native-rs))
 - `vendor/` - MapLibre Native and cpr submodules
