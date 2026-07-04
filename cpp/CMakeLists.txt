@@ -1,71 +1,81 @@
-add_executable(maplibre-slint-example
-    main.cpp
-    src/slint_maplibre_headless.cpp
-    platform/custom_file_source.cpp
+# --- Reusable backend library: mbgl-slint ---
+# The canonical headless MapLibre Native <-> Slint backend, packaged as a
+# linkable target so downstream applications can consume it instead of
+# recompiling these sources. Public dependencies and include directories
+# propagate to anything that links it, so a consumer only needs:
+#
+#   target_link_libraries(my-app PRIVATE maplibre-native-slint::mbgl-slint)
+#   slint_target_sources(my-app my.slint
+#       LIBRARY_PATHS maplibre-native-slint=${maplibre-native-slint_SOURCE_DIR}/src)
+#
+add_library(mbgl-slint STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/slint_maplibre_headless.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/platform/custom_file_source.cpp
+)
+add_library(maplibre-native-slint::mbgl-slint ALIAS mbgl-slint)
+
+target_include_directories(mbgl-slint PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/platform
+    ${PROJECT_SOURCE_DIR}/vendor/maplibre-native/include
+    ${PROJECT_BINARY_DIR}/vendor/maplibre-native/include
 )
 
-if (WIN32)
-  target_compile_definitions(maplibre-slint-example
-    PRIVATE NOMINMAX _USE_MATH_DEFINES WIN32_LEAN_AND_MEAN)
+target_link_libraries(mbgl-slint PUBLIC
+    Slint::Slint
+    mbgl-core
+    cpr::cpr
+)
 
-  if (MSVC)
-    target_compile_options(maplibre-slint-example PRIVATE /utf-8 /MP)
-  endif()
-
-  find_package(libuv CONFIG REQUIRED)
-
-  if (TARGET libuv::uv_a)
-    set(ML_UV_TARGET libuv::uv_a)
-  else()
-    set(ML_UV_TARGET libuv::uv)
-  endif()
-
-  target_link_libraries(maplibre-slint-example PRIVATE ${ML_UV_TARGET})
+if(MLN_WITH_WEBGPU)
+    target_compile_definitions(mbgl-slint PUBLIC MLN_WITH_WEBGPU)
+    # WebGPU backend: link wgpu-native via the mbgl-vendor-wgpu target.
+    if(TARGET mbgl-vendor-wgpu)
+        target_link_libraries(mbgl-slint PUBLIC mbgl-vendor-wgpu)
+    endif()
+else()
+    # Traditional OpenGL/Metal backend.
+    target_include_directories(mbgl-slint PUBLIC ${GLES3_INCLUDE_DIRS})
+    target_link_libraries(mbgl-slint PUBLIC
+        ${GLES3_LIBRARIES}
+        ${OPENGL_LIBRARIES}
+        $<$<PLATFORM_ID:Darwin>:${METAL_FRAMEWORK}>
+    )
 endif()
 
-# Associate .slint files with the target (only if the helper is available)
-if (COMMAND slint_target_sources)
+if(WIN32)
+    target_compile_definitions(mbgl-slint
+        PUBLIC NOMINMAX _USE_MATH_DEFINES WIN32_LEAN_AND_MEAN)
+    if(MSVC)
+        target_compile_options(mbgl-slint PRIVATE /utf-8 /MP)
+    endif()
+    # libuv is required by the MapLibre Native backend on Windows.
+    find_package(libuv CONFIG REQUIRED)
+    if(TARGET libuv::uv_a)
+        target_link_libraries(mbgl-slint PUBLIC libuv::uv_a)
+    else()
+        target_link_libraries(mbgl-slint PUBLIC libuv::uv)
+    endif()
+endif()
+
+# --- Reference application (headless backend) ---
+add_executable(maplibre-slint-example main.cpp)
+
+# Associate the .slint UI. The reusable component surface in src/ is imported
+# via the "@maplibre-native-slint" library alias (see map_window.slint).
+if(COMMAND slint_target_sources)
     slint_target_sources(maplibre-slint-example
         ${CMAKE_CURRENT_SOURCE_DIR}/map_window.slint
+        LIBRARY_PATHS maplibre-native-slint=${PROJECT_SOURCE_DIR}/src
     )
 else()
     message(FATAL_ERROR "slint_target_sources command is not available. Ensure Slint's CMake integration is present.")
 endif()
 
-# Include dirs for this project (Slint::Slint will propagate its own include dirs)
-target_include_directories(maplibre-slint-example
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/platform
-        ${PROJECT_SOURCE_DIR}/vendor/maplibre-native/include
-        ${CMAKE_BINARY_DIR}/vendor/maplibre-native/include
-        ${CMAKE_CURRENT_BINARY_DIR}
-        $<$<NOT:$<BOOL:${MLN_WITH_WEBGPU}>>:${GLES3_INCLUDE_DIRS}>
-)
-
-# Link libraries
-target_link_libraries(maplibre-slint-example
-    PRIVATE
-        Slint::Slint
-        mbgl-core
-        cpr::cpr
-)
-
-if(MLN_WITH_WEBGPU)
-  target_compile_definitions(maplibre-slint-example PRIVATE MLN_WITH_WEBGPU)
-  # WebGPU backend: link wgpu-native via the mbgl-vendor-wgpu target from maplibre-native
-  if(TARGET mbgl-vendor-wgpu)
-    target_link_libraries(maplibre-slint-example PRIVATE mbgl-vendor-wgpu)
-  endif()
-else()
-  # Traditional OpenGL/Metal backend
-  target_link_libraries(maplibre-slint-example
-      PRIVATE
-          ${GLES3_LIBRARIES}
-          ${OPENGL_LIBRARIES}
-          $<$<PLATFORM_ID:Darwin>:${METAL_FRAMEWORK}>
-  )
-endif()
+# Only the generated Slint header (map_window.h) is local to this target;
+# everything else propagates from mbgl-slint.
+target_include_directories(maplibre-slint-example PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(maplibre-slint-example PRIVATE maplibre-native-slint::mbgl-slint)
 
 # On Windows, copy the Slint DLL next to the application binary so that it's found
 if (WIN32)
