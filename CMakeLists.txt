@@ -176,7 +176,7 @@ if (NOT TARGET Slint::Slint)
   FetchContent_Declare(
     Slint
     GIT_REPOSITORY https://github.com/slint-ui/slint.git
-    GIT_TAG release/1
+    GIT_TAG v1.17.0
     SOURCE_SUBDIR api/cpp
   )
 
