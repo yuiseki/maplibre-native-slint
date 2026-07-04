@@ -37,7 +37,7 @@ target_include_directories(maplibre-slint-example
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/platform
-        ${CMAKE_SOURCE_DIR}/vendor/maplibre-native/include
+        ${PROJECT_SOURCE_DIR}/vendor/maplibre-native/include
         ${CMAKE_BINARY_DIR}/vendor/maplibre-native/include
         ${CMAKE_CURRENT_BINARY_DIR}
         $<$<NOT:$<BOOL:${MLN_WITH_WEBGPU}>>:${GLES3_INCLUDE_DIRS}>
@@ -114,7 +114,7 @@ if(MLN_WITH_OPENGL AND NOT APPLE AND NOT WIN32)
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_SOURCE_DIR}/platform
-            ${CMAKE_SOURCE_DIR}/vendor/maplibre-native/include
+            ${PROJECT_SOURCE_DIR}/vendor/maplibre-native/include
             ${CMAKE_BINARY_DIR}/vendor/maplibre-native/include
             ${CMAKE_CURRENT_BINARY_DIR}
             ${GLES3_INCLUDE_DIRS}

@@ -195,7 +195,7 @@ endif()
 set(CPR_USE_SYSTEM_CURL ON CACHE BOOL "Use system-provided curl" FORCE)
 
 if (NOT TARGET cpr::cpr)
-  if (EXISTS "${CMAKE_SOURCE_DIR}/vendor/cpr/CMakeLists.txt")
+  if (EXISTS "${PROJECT_SOURCE_DIR}/vendor/cpr/CMakeLists.txt")
     message(STATUS "Adding vendored CPR via add_subdirectory(vendor/cpr)")
     add_subdirectory(vendor/cpr)            # will create cpr::cpr
   else()
