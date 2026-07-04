@@ -17,6 +17,21 @@ if(MLN_WITH_WEBGPU AND NOT DEFINED MLN_WEBGPU_IMPL_WGPU)
   set(MLN_WEBGPU_IMPL_WGPU ON CACHE BOOL "Use wgpu-native as the WebGPU implementation" FORCE)
 endif()
 
+# When WebGPU is disabled, exactly one MapLibre Native backend must be selected
+# explicitly. Fail early with an actionable message instead of the cryptic
+# "you need to set a rendering backend" error the maplibre-native submodule
+# emits later. We deliberately do NOT pick a backend implicitly, so the choice
+# stays visible.
+if(NOT MLN_WITH_WEBGPU
+   AND NOT MLN_WITH_OPENGL
+   AND NOT MLN_WITH_METAL
+   AND NOT MLN_WITH_VULKAN)
+  message(FATAL_ERROR
+    "MLN_WITH_WEBGPU=OFF but no rendering backend was selected.\n"
+    "Pass exactly one of: -DMLN_WITH_OPENGL=ON, -DMLN_WITH_METAL=ON, "
+    "or -DMLN_WITH_VULKAN=ON.")
+endif()
+
 # --- Platform-specific compiler warnings handling ---
 # On Linux with modern GCC (13+), Boost Geometry triggers variable shadowing warnings.
 # These warnings don't affect functionality but can break builds with -Werror.
