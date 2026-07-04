@@ -164,12 +164,26 @@ endif()
 
 
 #
-# Slint: try to find it, otherwise fetch & build it via FetchContent
+# Slint: prefer a system install if allowed, otherwise fetch & build it.
 #
-find_package(Slint QUIET)
+# A system-wide Slint can be built against a foreign Qt/ICU (e.g. from a conda
+# env); its RUNPATH then leaks into the application and breaks portability on
+# other machines. Pass -DMLN_SLINT_USE_SYSTEM=OFF to always build a
+# self-contained copy via FetchContent.
+#
+option(MLN_SLINT_USE_SYSTEM "Use a system-installed Slint if found (otherwise always build it via FetchContent)" ON)
+
+if(MLN_SLINT_USE_SYSTEM)
+  find_package(Slint QUIET)
+  if(TARGET Slint::Slint)
+    message(STATUS "Slint: using a system install. Pass -DMLN_SLINT_USE_SYSTEM=OFF to build a self-contained copy instead.")
+  endif()
+else()
+  message(STATUS "Slint: MLN_SLINT_USE_SYSTEM=OFF; building a bundled copy via FetchContent.")
+endif()
 
 if (NOT TARGET Slint::Slint)
-  message(STATUS "Slint CMake target not found. Downloading Slint (api/cpp) via FetchContent and building locally.")
+  message(STATUS "Slint: building from source via FetchContent (api/cpp).")
   # show progress for debugging if needed
   set(FETCHCONTENT_QUIET FALSE)
 
