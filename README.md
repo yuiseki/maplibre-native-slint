@@ -7,6 +7,7 @@ The important thing here is not packaging polish. The important thing is that th
 ## What This Repository Is
 
 - A reusable Slint component library centered on [`src/maplibre.slint`](src/maplibre.slint)
+- A reusable C++ backend **library target** (`maplibre-native-slint::mbgl-slint`) you can link from your own CMake app
 - A canonical C++ backend integration that works on Linux, Windows, and macOS
 - A practical reference for people who want to build their own Slint + MapLibre app
 - A place to validate backend choices such as WebGPU (`wgpu-native`) and Metal/OpenGL fallbacks
@@ -14,8 +15,8 @@ The important thing here is not packaging polish. The important thing is that th
 ## What This Repository Is Not
 
 - Not yet a polished end-user SDK
-- Not yet a versioned package with stable distribution guarantees
-- Not yet a "just import it and everything is magically wired for you" solution
+- Not yet an installable, versioned package (no `find_package` / system install yet) — you consume it via `FetchContent` / `add_subdirectory`, see [Use It In Your Own App](#use-it-in-your-own-app)
+- Not a "everything is magically wired for you" drop-in — you still write the small `MMapAdapter` wiring in your own `main` (see [`cpp/main.cpp`](cpp/main.cpp))
 
 Today, the most honest way to describe this repository is:
 
@@ -91,6 +92,64 @@ That is the reusable UI layer.
 
 What still needs to be provided by the host application is the native backend wiring for `MMapAdapter`. The canonical example of that wiring is [`cpp/main.cpp`](cpp/main.cpp).
 
+## Use It In Your Own App
+
+The repository is consumable directly from another CMake project — no system install needed. Fetch it and link the reusable backend target `maplibre-native-slint::mbgl-slint`, which publicly propagates MapLibre Native, Slint, cpr, the GL/WebGPU libraries, and the backend headers:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+  maplibre-native-slint
+  GIT_REPOSITORY https://github.com/maplibre/maplibre-native-slint.git
+  GIT_TAG <pin-a-commit>
+)
+FetchContent_MakeAvailable(maplibre-native-slint)
+
+add_executable(my-app main.cpp)
+
+# Import the reusable Slint components via the @maplibre-native-slint alias.
+slint_target_sources(my-app my.slint
+  LIBRARY_PATHS maplibre-native-slint=${maplibre-native-slint_SOURCE_DIR}/src)
+
+target_link_libraries(my-app PRIVATE maplibre-native-slint::mbgl-slint)
+```
+
+Your `main.cpp` wires the Slint `MMapAdapter` callbacks to a `SlintMapLibre`
+instance (from `slint_maplibre_headless.hpp`, provided by the target). Copy
+[`cpp/main.cpp`](cpp/main.cpp) as the starting point.
+
+### Backend selection
+
+The default build uses WebGPU (`wgpu-native`). To use OpenGL instead, disable
+WebGPU **and** select a backend explicitly — a bare `-DMLN_WITH_WEBGPU=OFF`
+fails fast with a message telling you to pick one:
+
+```bash
+cmake -B build -DMLN_WITH_WEBGPU=OFF -DMLN_WITH_OPENGL=ON
+```
+
+### Slint provisioning
+
+A system-installed Slint is used if found, otherwise Slint is built from source.
+A system Slint built against a foreign Qt/ICU can bake its `RUNPATH` into your
+binary and break portability, so force a self-contained build with:
+
+```bash
+cmake -B build -DMLN_SLINT_USE_SYSTEM=OFF
+```
+
+For a fully self-contained, no-Qt result (kiosk / embedded), combine it with the
+winit + FemtoVG Slint backend:
+
+```bash
+cmake -B build \
+  -DMLN_WITH_WEBGPU=OFF -DMLN_WITH_OPENGL=ON \
+  -DMLN_SLINT_USE_SYSTEM=OFF \
+  -DSLINT_FEATURE_BACKEND_QT=OFF \
+  -DSLINT_FEATURE_BACKEND_WINIT=ON \
+  -DSLINT_FEATURE_RENDERER_FEMTOVG=ON
+```
+
 ## Architecture
 
 ### UI contract
@@ -101,8 +160,9 @@ What still needs to be provided by the host application is the native backend wi
 
 ### Canonical backend
 
-- [`cpp/main.cpp`](cpp/main.cpp) wires `MMapAdapter` to the native map engine
 - [`cpp/src/slint_maplibre_headless.cpp`](cpp/src/slint_maplibre_headless.cpp) holds the current production-grade backend logic
+- It is packaged as the `mbgl-slint` library target (alias `maplibre-native-slint::mbgl-slint`) so apps and tests link it instead of recompiling the sources
+- [`cpp/main.cpp`](cpp/main.cpp) wires `MMapAdapter` to that backend
 - [`cpp/map_window.slint`](cpp/map_window.slint) is a demo shell showing how to use the reusable component
 
 ### Experimental backend
@@ -199,14 +259,13 @@ For day-to-day validation, the most important checks are:
 
 Near-term goals:
 
-- Keep the reusable Slint API in [`src/`](src/) stable enough for copy-and-adapt usage
+- Keep the reusable Slint API in [`src/`](src/) and the `mbgl-slint` target stable enough for direct consumption
 - Keep the C++ backend as the authoritative cross-platform reference
-- Improve documentation for consumers who want to embed the component in their own Slint app
 
 Longer-term possibilities:
 
+- an installable/exported package (`find_package(maplibre-native-slint)`) so downstream apps do not need `FetchContent`
 - better packaging so users do not need to think about the C++ toolchain
-- a cleaner runtime installation story for downstream apps
 - a lower-overhead rendering path that avoids GPU-to-CPU readback
 
 These are goals, not promises. The current value of this repository is that it already demonstrates a real working integration.
