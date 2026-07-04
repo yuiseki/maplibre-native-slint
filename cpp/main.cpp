@@ -99,6 +99,33 @@ int main(int argc, char** argv) {
         if (w > 0 && h > 0) {
             if (!*initialized) {
                 slint_map->initialize(w, h);
+                // Apply the map's declared initial style/camera (published by
+                // MMapView.init) now that the backend map exists, so a map
+                // declared with a style-url/center/zoom opens there instead of
+                // silently keeping the backend's built-in default.
+                auto& adapter = main_window->global<MMapAdapter>();
+                if (adapter.get_initial_config_set()) {
+                    const auto url = adapter.get_initial_style_url();
+                    if (url.size() > 0) {
+                        slint_map->setStyleUrl(
+                            std::string(url.data(), url.size()));
+                    }
+                    if (auto* m = slint_map->get_map()) {
+                        mbgl::CameraOptions cam;
+                        cam
+                            .withCenter(mbgl::LatLng{
+                                static_cast<double>(adapter.get_initial_lat()),
+                                static_cast<double>(adapter.get_initial_lon())})
+                            .withZoom(
+                                static_cast<double>(adapter.get_initial_zoom()))
+                            .withBearing(static_cast<double>(
+                                adapter.get_initial_bearing()))
+                            .withPitch(static_cast<double>(
+                                adapter.get_initial_pitch()));
+                        m->jumpTo(cam);
+                        m->triggerRepaint();
+                    }
+                }
                 *initialized = true;
             } else {
                 slint_map->resize(w, h);

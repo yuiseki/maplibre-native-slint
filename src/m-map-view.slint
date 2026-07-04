@@ -54,9 +54,36 @@ export component MMapView {
         MMapAdapter.request-bearing-change(bearing);
     }
 
+    // --- internal: publish the declared initial config so the backend can
+    // apply it once the map exists (init runs before the backend is ready). ---
+    init => {
+        MMapAdapter.initial-style-url = self.style-url;
+        MMapAdapter.initial-lat = self.center-lat;
+        MMapAdapter.initial-lon = self.center-lon;
+        MMapAdapter.initial-zoom = self.zoom;
+        MMapAdapter.initial-bearing = self.bearing;
+        MMapAdapter.initial-pitch = self.pitch;
+        MMapAdapter.initial-config-set = true;
+    }
+
     // --- internal: propagate property changes to backend ---
     changed style-url => {
         MMapAdapter.request-style-change(self.style-url);
+    }
+    changed center-lat => {
+        MMapAdapter.request-fly-to(self.center-lat, self.center-lon, self.zoom);
+    }
+    changed center-lon => {
+        MMapAdapter.request-fly-to(self.center-lat, self.center-lon, self.zoom);
+    }
+    changed zoom => {
+        MMapAdapter.request-fly-to(self.center-lat, self.center-lon, self.zoom);
+    }
+    changed bearing => {
+        MMapAdapter.request-bearing-change(self.bearing);
+    }
+    changed pitch => {
+        MMapAdapter.request-pitch-change(self.pitch);
     }
 
     // --- internal: render loop ---
