@@ -11,16 +11,22 @@ env:
 
 jobs:
   test:
-    name: Test (maplibre_native ${{ matrix.mln }})
+    name: Test (maplibre_native ${{ matrix.mln }}, slint ${{ matrix.slint_backend }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
         rust: [stable]
-        # Both arms run on the same runner so the GUI smoke test below is a
+        # Every arm runs on the same runner so the GUI smoke test below is a
         # controlled comparison rather than a single data point.
+        #
+        # The renderer arm is not optional. On a Linux/NVIDIA desktop the same
+        # EGL binary logged 239 successful context activations under the
+        # software renderer and failed the very first one under femtovg, so a
+        # software-only run goes green while detecting nothing.
         mln: ["0.8.2", "0.9.1"]
+        slint_backend: ["winit-femtovg", "winit-software"]
     steps:
       - uses: actions/checkout@v6
 
@@ -124,42 +130,53 @@ jobs:
         run: cargo test --verbose
         working-directory: ./rust
 
+      - name: Report the host GL stack available to the toolkit
+        run: glxinfo -B 2>&1 | head -20 || true
+
+      # Expected: every arm green except (0.9.1, winit-femtovg), which is red
+      # if this runner reproduces the reported crash. A red (0.9.1,
+      # winit-femtovg) is the finding, not a broken workflow.
       - name: GUI smoke test under Xvfb
         working-directory: ./rust
         env:
-          # Force the GL renderer. The software renderer does not exercise the
-          # host-GL-context path this probe is about, so leaving the backend to
-          # auto-selection could make the test vacuous.
-          SLINT_BACKEND: winit-femtovg
+          SLINT_BACKEND: ${{ matrix.slint_backend }}
         run: |
           set +e
           xvfb-run -a -s "-screen 0 1024x768x24 -ac +extension GLX +render -noreset" \
-            timeout 25 ./target/debug/maplibre_native_slint > gui.log 2>&1
+            bash ../.github/scripts/gui_smoke.sh > smoke.txt 2>&1
           code=$?
           set -e
+          cat smoke.txt
           echo "::group::gui.log"
-          cat gui.log
+          cat gui.log || true
           echo "::endgroup::"
-          echo "exit code: $code"
 
           if grep -q 'Switching OpenGL context failed' gui.log; then
-            echo "REPRODUCED: headless backend failed to make its context current"
+            echo "REPRODUCED: the headless backend could not make its context current"
             exit 1
           fi
-          if [ "$code" -ne 124 ]; then
-            echo "Process did not survive 25s (exit $code)"
+          if [ "$code" -ne 0 ]; then
+            echo "Process did not survive (gui_smoke exit $code)"
             exit 1
           fi
           if ! grep -q 'Rendering Stats' gui.log; then
             echo "Survived but never rendered a frame; this arm proves nothing"
             exit 1
           fi
-          echo "Survived 25s and rendered at least one frame"
+          # A femtovg arm that never brought up EGL cannot exercise the
+          # collision, so say so rather than banking a misleading pass.
+          if [ "${SLINT_BACKEND}" = "winit-femtovg" ] && ! grep -q 'libEGL' smoke.txt; then
+            echo "INCONCLUSIVE: the toolkit did not load libEGL, so this arm"
+            echo "does not exercise the EGL collision even though it passed."
+          fi
+          echo "Survived and rendered at least one frame"
 
       - name: Upload GUI log
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gui-log-mln${{ matrix.mln }}
-          path: rust/gui.log
+          name: gui-log-mln${{ matrix.mln }}-${{ matrix.slint_backend }}
+          path: |
+            rust/gui.log
+            rust/smoke.txt
           retention-days: 5
