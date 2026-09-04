@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'probe/**' ]
   pull_request:
     branches: [ main, master ]
 
@@ -11,25 +11,29 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: Test (maplibre_native ${{ matrix.mln }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest]
         rust: [stable]
+        # Both arms run on the same runner so the GUI smoke test below is a
+        # controlled comparison rather than a single data point.
+        mln: ["0.8.2", "0.9.1"]
     steps:
       - uses: actions/checkout@v6
-      
+
       - name: Install Protocol Buffers Compiler
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
-      
+
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -57,33 +61,105 @@ jobs:
             libxcb-xfixes0-dev \
             libxkbcommon-dev \
             spirv-tools
-      
+          # maplibre_native >= 0.9.0 defaults the Linux `opengl` feature to the
+          # EGL headless backend, which needs <EGL/egl.h> and -lEGL. 0.8.2 built
+          # the GLX backend and needed neither.
+          sudo apt-get install -y \
+            libegl1-mesa-dev \
+            libgl1-mesa-dev \
+            libgles2-mesa-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            mesa-utils \
+            xvfb
+
+      - name: Pin maplibre_native ${{ matrix.mln }}
+        working-directory: ./rust
+        run: |
+          sed -i 's|maplibre_native = { version = "[^"]*"|maplibre_native = { version = "${{ matrix.mln }}"|g' Cargo.toml
+          # --precise keeps slint where the lock has it, so this stays a
+          # one-variable change.
+          cargo update -p maplibre_native --precise ${{ matrix.mln }}
+          grep -n 'maplibre_native = ' Cargo.toml
+          grep -A1 '^name = "slint"' Cargo.lock
+
       - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('rust/**/Cargo.lock') }}
-      
+          key: ${{ runner.os }}-cargo-registry-mln${{ matrix.mln }}-${{ hashFiles('rust/**/Cargo.lock') }}
+
       - name: Cache cargo index
         uses: actions/cache@v5
         with:
           path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('rust/**/Cargo.lock') }}
-      
+          key: ${{ runner.os }}-cargo-index-mln${{ matrix.mln }}-${{ hashFiles('rust/**/Cargo.lock') }}
+
       - name: Cache cargo build
         uses: actions/cache@v5
         with:
           path: rust/target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('rust/**/Cargo.lock') }}
-      
+          key: ${{ runner.os }}-cargo-build-target-mln${{ matrix.mln }}-${{ hashFiles('rust/**/Cargo.lock') }}
+
       - name: Build
         env:
           MLN_CMAKE_CXX_LAUNCHER: ccache
         run: cargo build --verbose
         working-directory: ./rust
-      
+
+      - name: Report the headless backend that was compiled
+        working-directory: ./rust
+        run: |
+          cache=$(find target/debug/build -name CMakeCache.txt -path '*maplibre_native*' | head -1)
+          echo "CMakeCache: $cache"
+          [ -n "$cache" ] && grep -E '^MLN_WITH_(OPENGL|EGL|X11|METAL|VULKAN):' "$cache" || true
+          ldd target/debug/maplibre_native_slint | grep -Ei 'egl|libgl' || true
+
       - name: Run tests
         env:
           MLN_CMAKE_CXX_LAUNCHER: ccache
         run: cargo test --verbose
         working-directory: ./rust
+
+      - name: GUI smoke test under Xvfb
+        working-directory: ./rust
+        env:
+          # Force the GL renderer. The software renderer does not exercise the
+          # host-GL-context path this probe is about, so leaving the backend to
+          # auto-selection could make the test vacuous.
+          SLINT_BACKEND: winit-femtovg
+        run: |
+          set +e
+          xvfb-run -a -s "-screen 0 1024x768x24 -ac +extension GLX +render -noreset" \
+            timeout 25 ./target/debug/maplibre_native_slint > gui.log 2>&1
+          code=$?
+          set -e
+          echo "::group::gui.log"
+          cat gui.log
+          echo "::endgroup::"
+          echo "exit code: $code"
+
+          if grep -q 'Switching OpenGL context failed' gui.log; then
+            echo "REPRODUCED: headless backend failed to make its context current"
+            exit 1
+          fi
+          if [ "$code" -ne 124 ]; then
+            echo "Process did not survive 25s (exit $code)"
+            exit 1
+          fi
+          if ! grep -q 'Rendering Stats' gui.log; then
+            echo "Survived but never rendered a frame; this arm proves nothing"
+            exit 1
+          fi
+          echo "Survived 25s and rendered at least one frame"
+
+      - name: Upload GUI log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gui-log-mln${{ matrix.mln }}
+          path: rust/gui.log
+          retention-days: 5
