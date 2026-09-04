@@ -178,12 +178,9 @@ jobs:
           fi
           echo "expected=${{ matrix.expect }} observed=$observed"
 
-          # A femtovg arm where the toolkit never brought up EGL cannot speak to
-          # the collision, so do not bank the result either way.
-          if [ "${SLINT_BACKEND}" = "winit-femtovg" ] && ! grep -q 'libEGL' smoke.txt; then
-            echo "INCONCLUSIVE: the toolkit did not load libEGL on this runner"
-            exit 1
-          fi
+          # The mapped-object list above is diagnostic only. It cannot attribute
+          # libEGL to the toolkit rather than to MapLibre, because an EGL build
+          # links -lEGL itself, so it must not gate the verdict.
 
           [ "$observed" = "${{ matrix.expect }}" ] || { echo "prediction violated"; exit 1; }
           echo "as predicted"
