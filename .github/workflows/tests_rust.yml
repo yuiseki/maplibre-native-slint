@@ -11,22 +11,31 @@ env:
 
 jobs:
   test:
-    name: Test (maplibre_native ${{ matrix.mln }}, slint ${{ matrix.slint_backend }})
-    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.mln }} / ${{ matrix.feature }} / ${{ matrix.slint_backend }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # Each arm states the outcome it expects, and the smoke step fails when
+      # the observation disagrees. An all-green run therefore means the whole
+      # causal story holds on this runner, and a red arm names the place where
+      # it broke.
+      #
+      # The story under test:
+      #   * maplibre_native 0.8.3 flipped the default Linux OpenGL context from
+      #     GLX to EGL. 0.8.2 is the last version that builds the GLX headless
+      #     backend, and the `glx` feature restores it from 0.8.3 onwards.
+      #   * MapLibre's EGL headless backend cannot make its context current
+      #     while the Slint toolkit holds a GL context on the same process, so
+      #     the EGL arms abort with "Switching OpenGL context failed".
+      #   * The software renderer never takes a host GL context, so it passes
+      #     even on an EGL build. Pinning one renderer hides half of this.
       matrix:
-        os: [ubuntu-latest]
-        rust: [stable]
-        # Every arm runs on the same runner so the GUI smoke test below is a
-        # controlled comparison rather than a single data point.
-        #
-        # The renderer arm is not optional. On a Linux/NVIDIA desktop the same
-        # EGL binary logged 239 successful context activations under the
-        # software renderer and failed the very first one under femtovg, so a
-        # software-only run goes green while detecting nothing.
-        mln: ["0.8.2", "0.9.1"]
-        slint_backend: ["winit-femtovg", "winit-software"]
+        include:
+          - { mln: "0.8.2", feature: "opengl", slint_backend: "winit-femtovg",  egl: "no",  expect: "pass" }
+          - { mln: "0.8.7", feature: "opengl", slint_backend: "winit-femtovg",  egl: "yes", expect: "reproduce" }
+          - { mln: "0.9.1", feature: "opengl", slint_backend: "winit-femtovg",  egl: "yes", expect: "reproduce" }
+          - { mln: "0.9.1", feature: "glx",    slint_backend: "winit-femtovg",  egl: "no",  expect: "pass" }
+          - { mln: "0.9.1", feature: "opengl", slint_backend: "winit-software", egl: "yes", expect: "pass" }
     steps:
       - uses: actions/checkout@v6
 
@@ -37,11 +46,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ matrix.rust }}
 
-      - name: Install system dependencies (Ubuntu)
-        if: runner.os == 'Linux'
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -67,9 +73,8 @@ jobs:
             libxcb-xfixes0-dev \
             libxkbcommon-dev \
             spirv-tools
-          # maplibre_native >= 0.9.0 defaults the Linux `opengl` feature to the
-          # EGL headless backend, which needs <EGL/egl.h> and -lEGL. 0.8.2 built
-          # the GLX backend and needed neither.
+          # The EGL headless backend needs <EGL/egl.h> and -lEGL. The GLX one
+          # needs neither, which is why this workflow never asked for them.
           sudo apt-get install -y \
             libegl1-mesa-dev \
             libgl1-mesa-dev \
@@ -82,33 +87,44 @@ jobs:
             mesa-utils \
             xvfb
 
-      - name: Pin maplibre_native ${{ matrix.mln }}
+      - name: Pin maplibre_native ${{ matrix.mln }} with feature ${{ matrix.feature }}
         working-directory: ./rust
         run: |
-          sed -i 's|maplibre_native = { version = "[^"]*"|maplibre_native = { version = "${{ matrix.mln }}"|g' Cargo.toml
-          # --precise keeps slint where the lock has it, so this stays a
-          # one-variable change.
+          want_slint=$(grep -A1 '^name = "slint"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+          echo "slint currently locked at ${want_slint}"
+
+          # An exact requirement, not a caret one. `cargo update --precise` does
+          # not hold when the locked version falls outside the requirement the
+          # manifest was just given: cargo re-resolves to the newest compatible
+          # release instead, so a bare "0.8.2" silently lands on 0.8.7.
+          sed -i "s|maplibre_native = { version = \"[^\"]*\"|maplibre_native = { version = \"=${{ matrix.mln }}\"|g" Cargo.toml
+          sed -i "s|features = \[\"opengl\"\] }|features = [\"${{ matrix.feature }}\"] }|" Cargo.toml
           cargo update -p maplibre_native --precise ${{ matrix.mln }}
           grep -n 'maplibre_native = ' Cargo.toml
-          grep -A1 '^name = "slint"' Cargo.lock
+
+          got=$(grep -A1 '^name = "maplibre_native"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+          if [ "$got" != "${{ matrix.mln }}" ]; then
+            echo "lock pinned maplibre_native $got, wanted ${{ matrix.mln }}"
+            exit 1
+          fi
+          got_slint=$(grep -A1 '^name = "slint"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+          if [ "$got_slint" != "$want_slint" ]; then
+            echo "slint moved $want_slint -> $got_slint; this is no longer a one-variable change"
+            exit 1
+          fi
+          echo "pinned maplibre_native $got, slint held at $got_slint"
 
       - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-mln${{ matrix.mln }}-${{ hashFiles('rust/**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-mln${{ matrix.mln }}-${{ hashFiles('rust/**/Cargo.lock') }}
+          key: ${{ runner.os }}-registry-${{ matrix.mln }}-${{ matrix.feature }}
 
       - name: Cache cargo build
         uses: actions/cache@v5
         with:
           path: rust/target
-          key: ${{ runner.os }}-cargo-build-target-mln${{ matrix.mln }}-${{ hashFiles('rust/**/Cargo.lock') }}
+          key: ${{ runner.os }}-target-${{ matrix.mln }}-${{ matrix.feature }}
 
       - name: Build
         env:
@@ -116,13 +132,18 @@ jobs:
         run: cargo build --verbose
         working-directory: ./rust
 
-      - name: Report the headless backend that was compiled
+      - name: Assert the expected headless backend was compiled
         working-directory: ./rust
         run: |
           cache=$(find target/debug/build -name CMakeCache.txt -path '*maplibre_native*' | head -1)
           echo "CMakeCache: $cache"
-          [ -n "$cache" ] && grep -E '^MLN_WITH_(OPENGL|EGL|X11|METAL|VULKAN):' "$cache" || true
-          ldd target/debug/maplibre_native_slint | grep -Ei 'egl|libgl' || true
+          grep -E '^MLN_WITH_(OPENGL|EGL|X11):' "$cache"
+          egl=$(sed -n 's/^MLN_WITH_EGL:BOOL=\(.*\)$/\1/p' "$cache")
+          case "${{ matrix.egl }}:$egl" in
+            yes:ON|no:OFF) echo "headless backend matches the arm (EGL=$egl)" ;;
+            *) echo "arm expects EGL=${{ matrix.egl }} but cmake configured EGL=$egl"; exit 1 ;;
+          esac
+          ldd target/debug/maplibre_native_slint | grep -Ei 'libEGL|libGL\.' || true
 
       - name: Run tests
         env:
@@ -130,12 +151,9 @@ jobs:
         run: cargo test --verbose
         working-directory: ./rust
 
-      - name: Report the host GL stack available to the toolkit
+      - name: Report the host GL stack
         run: glxinfo -B 2>&1 | head -20 || true
 
-      # Expected: every arm green except (0.9.1, winit-femtovg), which is red
-      # if this runner reproduces the reported crash. A red (0.9.1,
-      # winit-femtovg) is the finding, not a broken workflow.
       - name: GUI smoke test under Xvfb
         working-directory: ./rust
         env:
@@ -152,30 +170,29 @@ jobs:
           echo "::endgroup::"
 
           if grep -q 'Switching OpenGL context failed' gui.log; then
-            echo "REPRODUCED: the headless backend could not make its context current"
-            exit 1
+            observed=reproduce
+          elif [ "$code" -eq 0 ] && grep -q 'Rendering Stats' gui.log; then
+            observed=pass
+          else
+            observed="other (gui_smoke exit $code)"
           fi
-          if [ "$code" -ne 0 ]; then
-            echo "Process did not survive (gui_smoke exit $code)"
-            exit 1
-          fi
-          if ! grep -q 'Rendering Stats' gui.log; then
-            echo "Survived but never rendered a frame; this arm proves nothing"
-            exit 1
-          fi
-          # A femtovg arm that never brought up EGL cannot exercise the
-          # collision, so say so rather than banking a misleading pass.
+          echo "expected=${{ matrix.expect }} observed=$observed"
+
+          # A femtovg arm where the toolkit never brought up EGL cannot speak to
+          # the collision, so do not bank the result either way.
           if [ "${SLINT_BACKEND}" = "winit-femtovg" ] && ! grep -q 'libEGL' smoke.txt; then
-            echo "INCONCLUSIVE: the toolkit did not load libEGL, so this arm"
-            echo "does not exercise the EGL collision even though it passed."
+            echo "INCONCLUSIVE: the toolkit did not load libEGL on this runner"
+            exit 1
           fi
-          echo "Survived and rendered at least one frame"
+
+          [ "$observed" = "${{ matrix.expect }}" ] || { echo "prediction violated"; exit 1; }
+          echo "as predicted"
 
       - name: Upload GUI log
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gui-log-mln${{ matrix.mln }}-${{ matrix.slint_backend }}
+          name: gui-log-${{ matrix.mln }}-${{ matrix.feature }}-${{ matrix.slint_backend }}
           path: |
             rust/gui.log
             rust/smoke.txt
